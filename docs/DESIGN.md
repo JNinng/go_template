@@ -256,18 +256,25 @@ type Source interface {
 
 ```go
 // setupLogging：log 节 → 缺省后端 → 设 observ 默认 → level 热更
-func setupLogging(t *config.Tree, onError func(error)) {
+// 非法 level（启动期）与构造错误 → 返回 error（引导失败 fail-fast）
+func setupLogging(t *config.Tree, r *runner) error {
     cfg, err := config.Decode(t, "log", logDefault())   // log 节定义自持于 app 包
-    if err != nil { onError(err); return }
+    if err != nil { return err }
     lvl := new(slog.LevelVar)
     lvl.Set(parseLevel(cfg.Level))
-    w := outputWriter(cfg.Output)                        // stdout 或文件（仅追加）
+    w, closeFn := outputWriter(cfg.Output)                  // stdout 或文件（仅追加）
     slog.SetDefault(slog.New(buildHandler(cfg.Format, lvl, w)))
     observ.SetDefaultLogger(observ.NewSlogLogger(slog.Default()))
+    if closeFn != nil {                                     // output 为文件：停机关闭钩子（逆序最后执行）
+        r.Add("log-close", nil, func(context.Context) error { return closeFn() })
+    }
     config.Watch(t, "log", logDefault(), func(c logConfig) error {
-        lvl.Set(parseLevel(c.Level))                      // 唯一热更字段（作用于后端级别）
-        return nil                                        // 其余字段变更记 info 提示重启
+        if next, err := parseLevel(c.Level); err != nil {
+            return err                                      // 非法热更值：记 warn 保持旧值
+        } else { lvl.Set(next) }                            // 唯一热更字段（作用于后端级别）
+        return nil                                          // 其余字段变更记 info 提示重启
     })
+    return nil
 }
 ```
 
