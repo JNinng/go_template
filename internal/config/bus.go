@@ -9,12 +9,13 @@ import (
 // 隔离（apply panic 被 recover）、取消后无在途且无后续回调。
 
 type subscription struct {
-	token    chan struct{} // 缓冲深度 1：突发变更合并为最新值
-	stopCh   chan struct{}
-	done     chan struct{}
-	stopOnce sync.Once
+	token    chan struct{} // 投递信号，缓冲深度 1：突发变更合并为最新值
+	stopCh   chan struct{} // 关闭即通知订阅 goroutine 退出
+	done     chan struct{} // 订阅 goroutine 退出时关闭，供 stop 等待在途回调结束
+	stopOnce sync.Once     // 保证 stop 的幂等（可安全重入）
 }
 
+// newSubscription 构造一个处于待投递状态的订阅。
 func newSubscription() *subscription {
 	return &subscription{
 		token:  make(chan struct{}, 1),
@@ -37,12 +38,14 @@ func (s *subscription) stop() {
 	<-s.done
 }
 
+// register 把订阅纳入总线：此后每次树重建都会投递信号。
 func (t *Tree) register(s *subscription) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.subs = append(t.subs, s)
 }
 
+// unregister 把已停止的订阅移出总线（幂等）。
 func (t *Tree) unregister(s *subscription) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -54,6 +57,7 @@ func (t *Tree) unregister(s *subscription) {
 	}
 }
 
+// notifyAll 快照订阅集合并逐个非阻塞投递；不得持锁调用。
 func (t *Tree) notifyAll() {
 	t.mu.RLock()
 	subs := make([]*subscription, len(t.subs))
@@ -73,20 +77,23 @@ func Watch[T any](t *Tree, section string, base T, apply func(T) error) (cancel 
 	deliver := func() {
 		cfg, err := decodeSection(t, section, base)
 		if err != nil {
-			t.logWarn("config watch decode failed, keeping last valid",
-				slog.String("section", section), slog.Any("err", err))
+			// 校验类异常（未知键/类型不符）：Warn，丢弃本次、保持上一有效值
+			logWarn("config_watch_decode_error",
+				slog.String("section", section), slog.Any("error", err))
 			return
 		}
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					t.logWarn("config watch apply panicked",
-						slog.String("section", section), slog.Any("panic", r))
+					// panic 属意外缺陷：Error 兜底记录（含 panic 值与堆栈），进程不死
+					logError("config_watch_apply_panicked",
+						slog.String("section", section), slog.Any("panic_value", r))
 				}
 			}()
 			if err := apply(cfg); err != nil {
-				t.logWarn("config watch apply failed",
-					slog.String("section", section), slog.Any("err", err))
+				// apply 拒绝新值属组件侧校验：Warn，保持上一有效值
+				logWarn("config_watch_apply_failed",
+					slog.String("section", section), slog.Any("error", err))
 			}
 		}()
 	}

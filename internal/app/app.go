@@ -32,10 +32,11 @@ func Run(configPath, env, logLevel string) error {
 	if err != nil {
 		return err
 	}
-	observ.DefaultLogger().Log(slog.LevelInfo, "service started",
-		slog.String("name", meta.Name),
-		slog.String("env", effEnv),
-		slog.String("version", Version))
+	// 启动行：模板运行的最小可见信号（Info，关键流程节点）
+	observ.DefaultLogger().Log(slog.LevelInfo, "service_started",
+		slog.String("app_name", meta.Name),
+		slog.String("app_env", effEnv),
+		slog.String("app_version", Version))
 
 	if err := wire(t, r); err != nil {
 		return err

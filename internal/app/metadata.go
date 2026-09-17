@@ -13,11 +13,10 @@ import (
 // Version 不进配置文件。
 var Version = "dev"
 
-// Meta 是模板自持的 app 节定义。name 必填非空（缺失 → fail-fast）；
-// env 是运行环境声明值，供下游消费（启动日志、可观测资源、注册分组）。
+// Meta 是模板自持的 app 节定义（应用元数据是纯数据，由装配点显式传参消费）。
 type Meta struct {
-	Name string `yaml:"name"`
-	Env  string `yaml:"env"`
+	Name string `yaml:"name"` // 应用名，必填非空（缺失或为空 → 启动 fail-fast）
+	Env  string `yaml:"env"`  // 运行环境声明值，供下游消费（启动日志、可观测资源、注册分组）
 }
 
 // Default 是 app 节解码基座（无默认值：name 必填）。

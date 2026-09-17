@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +21,10 @@ import (
 // Source 是远程配置提供方契约：每次配置变更以全量快照调用 push（非增量），
 // ctx 取消即停止。快照中消失的节即视为删除。
 type Source interface {
+	// Name 返回源名称，用于日志与错误归因（如 "nacos"）。
 	Name() string
+	// Start 阻塞或内部自管；每次配置变更以全量快照调用 push。
+	// 返回 error 即视为源启动失败（由 Attach 原样上抛）。
 	Start(ctx context.Context, push func(map[string]any)) error
 }
 
@@ -56,7 +60,7 @@ func (t *Tree) Attach(src Source) error {
 
 // watchFiles 监听基础与多环境文件。监听父目录并按路径过滤——
 // 直监听文件会漏掉 symlink 替换（k8s ConfigMap）与编辑器原子写
-//（temp+rename）两类事件。
+// （temp+rename）两类事件。
 func (t *Tree) watchFiles() {
 	paths := make([]string, 0, 2)
 	for _, p := range []string{t.basePath, t.envPath} {
@@ -71,7 +75,7 @@ func (t *Tree) watchFiles() {
 	}
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
-		t.logWarn("config file watch unavailable, hot reload disabled", slog.Any("err", err))
+		logError("config_file_watch_init_failed", slog.Any("error", err))
 		return
 	}
 	dirs := map[string]bool{}
@@ -80,8 +84,8 @@ func (t *Tree) watchFiles() {
 	}
 	for d := range dirs {
 		if err := w.Add(d); err != nil {
-			t.logWarn("config file watch unavailable, hot reload disabled",
-				slog.String("dir", d), slog.Any("err", err))
+			logError("config_file_watch_init_failed",
+				slog.String("watch_dir", d), slog.Any("error", err))
 			w.Close()
 			return
 		}
@@ -101,12 +105,13 @@ func (t *Tree) watchFiles() {
 				if !ok {
 					return
 				}
-				t.logWarn("config file watch error", slog.Any("err", err))
+				logError("config_file_watch_failed", slog.Any("error", err))
 			}
 		}
 	}()
 }
 
+// onFileEvent 按监听路径过滤事件：命中即触发对应文件重读。
 func (t *Tree) onFileEvent(paths []string, ev fsnotify.Event) {
 	for _, p := range paths {
 		if !samePath(ev.Name, p) {
@@ -132,8 +137,8 @@ func (t *Tree) reload(path string) {
 		time.Sleep(150 * time.Millisecond)
 	}
 	if err != nil {
-		t.logWarn("config reload failed, keeping last valid",
-			slog.String("file", path), slog.Any("err", err))
+		logError("config_reload_failed",
+			slog.String("file_path", path), slog.Any("error", err))
 		return
 	}
 	if samePath(path, t.basePath) {
@@ -143,6 +148,7 @@ func (t *Tree) reload(path string) {
 	t.setEnvLayer(m)
 }
 
+// samePath 比较两个路径是否指向同一文件（Windows 大小写不敏感）。
 func samePath(a, b string) bool {
 	a, b = filepath.Clean(a), filepath.Clean(b)
 	if runtime.GOOS == "windows" {
@@ -151,6 +157,7 @@ func samePath(a, b string) bool {
 	return a == b
 }
 
+// readFileLayer 读取并解析单个 yaml 文件为一层配置；空文件视为空层。
 func readFileLayer(path string) (map[string]any, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -166,7 +173,14 @@ func readFileLayer(path string) (map[string]any, error) {
 	return m, nil
 }
 
-func (t *Tree) logWarn(msg string, attrs ...slog.Attr) {
+// logWarn 记业务/校验类异常（Warn）：聚合监控即可，无需即时告警。
+func logWarn(msg string, attrs ...slog.Attr) {
 	// 动态读默认 logger：config 构造早于日志装配，快照会永久固定在 Noop
 	observ.DefaultLogger().Log(slog.LevelWarn, msg, attrs...)
+}
+
+// logError 记技术故障（Error）：自动附加堆栈，且只在最底层打一次。
+func logError(msg string, attrs ...slog.Attr) {
+	attrs = append(attrs, slog.String("stack", string(debug.Stack())))
+	observ.DefaultLogger().Log(slog.LevelError, msg, attrs...)
 }

@@ -9,13 +9,13 @@ import (
 // 启动时读取的环境变量值（尽力类型推断）。声明仅在 Load 时收集一次，
 // 其后冻结——声明本身的热更不生效（重启生效）。
 type binding struct {
-	path  []string
-	value any
+	path  []string // 目标键的逐级路径（含节名前缀），如 ["redis","pool","max"]
+	value any      // 启动时读取环境变量并尽力推断后的值
 }
 
 // collectBindings 从合并后的本地层（基础 + 多环境文件）收集全部 from_env
 // 声明并解析环境变量值。环境变量未设或空串不生效；远程层不参与
-//（实例级绑定属部署决策，不下发自远程）。
+// （实例级绑定属部署决策，不下发自远程）。
 func collectBindings(local map[string]any) []binding {
 	var bs []binding
 	for sec, v := range local {

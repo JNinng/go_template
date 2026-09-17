@@ -6,20 +6,21 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"runtime/debug"
 
 	"go_template/internal/config"
 
 	"github.com/jninng/observ"
 )
 
-// logConfig 是模板自持的 log 节定义；level 为唯一热更字段（作用于后端级别，
-// 调用面无感），format / output 变更仅重启生效。
+// logConfig 是模板自持的 log 节定义。
 type logConfig struct {
-	Level  string `yaml:"level"`
-	Format string `yaml:"format"`
-	Output string `yaml:"output"`
+	Level  string `yaml:"level"`  // 级别：debug / info / warn / error（唯一热更字段，作用于后端级别、调用面无感）
+	Format string `yaml:"format"` // 格式：text / json（重启生效）
+	Output string `yaml:"output"` // 目标：stdout 或文件路径，仅追加（重启生效）
 }
 
+// logDefault 返回 log 节解码基座（零配置可用）。
 func logDefault() logConfig {
 	return logConfig{Level: "info", Format: "text", Output: "stdout"}
 }
@@ -59,11 +60,11 @@ func setupLogging(t *config.Tree, r *runner) error {
 	config.Watch(t, "log", logDefault(), func(c logConfig) error {
 		next, err := parseLevel(c.Level)
 		if err != nil {
-			return fmt.Errorf("keep level %q: %w", cfg.Level, err)
+			return fmt.Errorf("keep level %q: %w", cfg.Level, err) // Warn，保持旧值
 		}
 		lvl.Set(next)
 		if c.Format != cfg.Format || c.Output != cfg.Output {
-			observ.DefaultLogger().Log(slog.LevelInfo, "log format/output change requires restart",
+			observ.DefaultLogger().Log(slog.LevelInfo, "log_config_restart_required",
 				slog.String("format", c.Format), slog.String("output", c.Output))
 		}
 		return nil
@@ -71,6 +72,13 @@ func setupLogging(t *config.Tree, r *runner) error {
 	return nil
 }
 
+// logError 记技术故障（Error）：自动附加堆栈，只在最底层打一次。
+func logError(msg string, attrs ...slog.Attr) {
+	attrs = append(attrs, slog.String("stack", string(debug.Stack())))
+	observ.DefaultLogger().Log(slog.LevelError, msg, attrs...)
+}
+
+// parseLevel 把级别字符串解析为 slog.Level（严格四档 + slog 偏移语法）。
 func parseLevel(s string) (slog.Level, error) {
 	var l slog.Level
 	if err := l.UnmarshalText([]byte(s)); err != nil {
@@ -79,8 +87,9 @@ func parseLevel(s string) (slog.Level, error) {
 	return l, nil
 }
 
-// outputWriter：stdout 或追加模式文件（不做轮转，轮转归属部署侧或业务
-// 换入的方案——缺省日志链路保持零第三方依赖的边界）。
+// outputWriter 返回日志输出目标：stdout 或追加模式文件（不做轮转，轮转
+// 归属部署侧或业务换入的方案——缺省日志链路保持零第三方依赖的边界）。
+// 文件目标附带关闭函数（注册为停机钩子）。
 func outputWriter(output string) (io.Writer, func() error, error) {
 	if output == "" || output == "stdout" {
 		return os.Stdout, nil, nil
@@ -92,6 +101,7 @@ func outputWriter(output string) (io.Writer, func() error, error) {
 	return f, f.Close, nil
 }
 
+// buildHandler 按格式构造 slog handler，共享可热更的级别变量。
 func buildHandler(format string, lvl *slog.LevelVar, w io.Writer) (slog.Handler, error) {
 	opts := &slog.HandlerOptions{Level: lvl}
 	switch format {

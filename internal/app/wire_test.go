@@ -12,19 +12,20 @@ import (
 	"go_template/internal/config"
 )
 
-// stubComp 是符合组件约定的最小原生组件（仅测试内存在）。
+// stubConfig 是符合组件约定的最小配置形态。
 type stubConfig struct {
-	Msg string `yaml:"message"`
-	N   int    `yaml:"interval_seconds"`
+	Msg string `yaml:"message"`         // 问候内容
+	N   int    `yaml:"interval_seconds"` // 周期秒数（必须 > 0）
 }
 
 func stubDefault() stubConfig { return stubConfig{Msg: "hello", N: 10} }
 
+// stubComp 是符合组件约定的最小原生组件（仅测试内存在）。
 type stubComp struct {
-	mu      sync.Mutex
-	cfg     stubConfig
-	applied []stubConfig
-	stopped int
+	mu      sync.Mutex   // 保护以下字段
+	cfg     stubConfig   // 当前生效配置
+	applied []stubConfig // ApplyConfig 历次收到的值
+	stopped int          // Stop 被调用次数（幂等性观测）
 }
 
 func newStub(cfg stubConfig) (*stubComp, error) {

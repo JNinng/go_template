@@ -6,10 +6,11 @@ import (
 	"time"
 )
 
+// watchRec 记录 Watch 回调收到的全部值（线程安全）。
 type watchRec struct {
-	mu     sync.Mutex
-	values []demoCfg
-	ch     chan demoCfg
+	mu     sync.Mutex // 保护 values
+	values []demoCfg  // 历次收到的配置
+	ch     chan demoCfg // 供 select 等待的信号通道
 }
 
 func newWatchRec() *watchRec {

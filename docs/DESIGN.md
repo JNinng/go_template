@@ -148,7 +148,7 @@ CLI 库为 cobra。命令集两个，刻意收敛：
   go build -ldflags "-X '<module>/internal/app.Version=v1.2.3'" ./cmd/app
   ```
   Version 不进配置文件。
-- **启动行**：`observ.DefaultLogger().Log(slog.LevelInfo, "service started", slog.String("name", …), …)`（含 env / version），模板运行的最小可见信号。
+- **启动行**：`observ.DefaultLogger().Log(slog.LevelInfo, "service_started", slog.String("app_name", …), slog.String("app_env", …), slog.String("app_version", …))`（消息与字段 snake_case，见 §9 日志规范），模板运行的最小可见信号。
 - **消费方式**：元数据是纯数据。组件需要它时由装配点显式传参（如注册组件的 service name 传 `meta.Name`），不存在元数据广播机制。
 
 ## 8. 配置体系
@@ -316,6 +316,12 @@ observ.SetDefaultLogger(zaplog.New(z))   // 模板与组件全部换向（observ
 
 **Meter**：模板不装配指标出口——组件经 observ.Meter 埋点时缺省 Noop、零开销；业务需要真实指标时，在装配点构造 prom 适配器并经组件 option 注入（与日志同一注入规范），模板自身对 Meter 无任何装配代码。
 
+**日志规范**（模板自有代码执行，原生组件建议同遵）：
+
+- 消息与字段一律 snake_case。消息命名 `{模块}_{动作}_{状态}`，后缀：操作失败 `_failed`（默认）、校验/状态异常 `_error`、正常态 `_success` / `_started` / `_completed`；字段必须带业务前缀（`app_name`、`file_path`、`error`），禁 `id` / `name` / `msg` 等模糊名。
+- 级别：技术故障（IO/连接/配置加载/panic）= Error 且自动附 `stack`（仅在错误最底层打一次）；业务与校验异常（热更值被拒等）= Warn；关键流程节点 = Info。配置值与敏感信息不落日志。
+- 并发安全：后端换向经 observ 原子替换，级别热更经 slog LevelVar——不存在对全局 logger 的直接重赋值。
+
 ## 10. 优雅停机
 
 运行器是模板唯一的生命周期机制，全文如下（规范级参考实现）：
@@ -332,8 +338,6 @@ import (
     "os/signal"
     "syscall"
     "time"
-
-    "github.com/jninng/observ"
 )
 
 const (
@@ -342,12 +346,13 @@ const (
 )
 
 type entry struct {
-    name  string
-    start func(context.Context) error
-    stop  func(context.Context) error
+    name  string                       // 组件名（装配点注册时给定，用于日志与错误归因）
+    start func(context.Context) error  // 启动钩子，nil 表示跳过
+    stop  func(context.Context) error  // 停止钩子（须幂等），nil 表示跳过
 }
 
-type runner struct{ entries []entry }
+// runner 按注册顺序启动、逆序停止所辖组件；信号与停机预算由其统一管理。
+type runner struct{ entries []entry } // entries：注册序即启动序，逆序即停止序
 
 // Add 注册一对生命周期；start / stop 均可为 nil（nil 跳过）。
 // 注册顺序即启动顺序，逆序即停止顺序。
@@ -355,6 +360,8 @@ func (r *runner) Add(name string, start, stop func(context.Context) error) {
     r.entries = append(r.entries, entry{name, start, stop})
 }
 
+// Run 阻塞执行：安装信号处理 → 顺序启动 → 等待信号/取消 → 逆序停机。
+// 返回 nil 即优雅退出（退出码 0）；启动失败返回错误（退出码 1）。
 func (r *runner) Run() error {
     sigCh := make(chan os.Signal, 2)
     signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -370,6 +377,17 @@ func (r *runner) Run() error {
         os.Exit(1)
     }()
 
+    started, err := r.startAll(ctx)
+    if err != nil {
+        return err
+    }
+
+    <-ctx.Done()
+    return r.shutdown(started)
+}
+
+// startAll 顺序启动；任一失败即逆序停止已启动者并返回错误（fail-fast 点）。
+func (r *runner) startAll(ctx context.Context) (int, error) {
     started := 0
     for _, e := range r.entries {
         if e.start == nil {
@@ -377,15 +395,15 @@ func (r *runner) Run() error {
         }
         if err := e.start(ctx); err != nil {
             _ = r.shutdown(started)
-            return fmt.Errorf("start %s: %w", e.name, err)
+            return started, fmt.Errorf("start %s: %w", e.name, err)
         }
         started++
     }
-
-    <-ctx.Done()
-    return r.shutdown(started)
+    return started, nil
 }
 
+// shutdown 逆序停止前 n 个已启动组件：单步预算 stepTimeout、总预算 totalBudget。
+// Stop 错误仅记日志（技术故障 Error）不中断流程；预算耗尽即强杀（退出码 1）。
 func (r *runner) shutdown(n int) error {
     deadline := time.Now().Add(totalBudget)
     for i := n - 1; i >= 0; i-- {
@@ -401,12 +419,12 @@ func (r *runner) shutdown(n int) error {
         err := e.stop(stepCtx)
         cancel()
         if err != nil {
-            observ.DefaultLogger().Log(slog.LevelWarn, "stop returned error",
-                slog.String("component", e.name), slog.Any("err", err))
+            logError("component_stop_failed", // Error + stack（logging.go）
+                slog.String("component_name", e.name), slog.Any("error", err))
         }
         if time.Now().After(deadline) && i > 0 {
-            observ.DefaultLogger().Log(slog.LevelError, "shutdown budget exhausted",
-                slog.Int("remaining", i))
+            logError("shutdown_budget_exhausted",
+                slog.Int("remaining_components", i))
             os.Exit(1)
         }
     }

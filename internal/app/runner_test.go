@@ -7,10 +7,11 @@ import (
 	"time"
 )
 
+// rec 记录 runner 生命周期钩子的触发顺序（线程安全）。
 type rec struct {
-	mu      sync.Mutex
-	events  []string
-	started []string
+	mu      sync.Mutex // 保护 events
+	events  []string   // 钩子事件时序，如 "start:a"、"stop:a"
+	started []string   // 已启动组件名（未使用于断言，保留可读性）
 }
 
 func (r *rec) record(e string) {

@@ -39,8 +39,9 @@ func newLogTree(t *testing.T, level string) *config.Tree {
 	return tr
 }
 
+// pushSrc 经 Attach 注入远程快照，驱动 log 节热更。
 type pushSrc struct {
-	fn func(ctx context.Context, push func(map[string]any)) error
+	fn func(ctx context.Context, push func(map[string]any)) error // Start 行为
 }
 
 func (s *pushSrc) Name() string { return "test" }

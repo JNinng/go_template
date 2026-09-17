@@ -161,7 +161,7 @@ func TestCollectBindings_NestedAndMultipleSections(t *testing.T) {
 				"pool":     map[string]any{"max": "CB_A"},
 			},
 		},
-		"plain": map[string]any{"k": "v"},
+		"plain":          map[string]any{"k": "v"},
 		"scalar_section": "not-a-map",
 	}
 	bs := collectBindings(local)

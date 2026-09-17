@@ -11,11 +11,12 @@ import (
 )
 
 var (
-	configPath string
-	envFlag    string
-	logLevel   string
+	configPath string // --config：基础配置文件路径
+	envFlag    string // --env：运行环境（缺省读 APP_ENV；与 APP_ENV 同为多环境文件的唯一选择输入）
+	logLevel   string // --log-level：静态覆盖 log.level，置于合并栈顶
 )
 
+// rootCmd 即 run 命令（root 默认，无参数即执行）：完整启动时序，阻塞至信号。
 var rootCmd = &cobra.Command{
 	Use:   "run",
 	Short: "启动长驻服务（默认命令，无参数即执行）",

@@ -18,12 +18,12 @@ import (
 // Override 是置于合并栈顶的静态点路径键（run 命令传 --log-level 用）。
 type Override struct {
 	Key   string // 点路径键，如 "log.level"
-	Value any
+	Value any    // 覆盖值，直接替换合并树对应键
 }
 
 // Tree 持有全部配置层，对外提供读取、订阅与远程源接入；并发安全。
 type Tree struct {
-	mu sync.RWMutex
+	mu sync.RWMutex // 保护以下全部字段；current 只整体替换、旧快照不可变
 
 	base    map[string]any // 基础文件层
 	multiEv map[string]any // 多环境文件层（未选定则为 nil）
@@ -34,12 +34,12 @@ type Tree struct {
 
 	current map[string]any // 合并结果快照，每次重建整体替换、旧快照不可变
 
-	subs []*subscription
+	subs []*subscription // 活跃订阅（热更总线）
 
-	basePath string
-	envPath  string
+	basePath string // 基础文件绝对化前路径，用于监听事件归属
+	envPath  string // 多环境文件路径，空串表示未选定
 
-	ctx    context.Context
+	ctx    context.Context // 文件监听与远程源的生命周期（随进程）
 	cancel context.CancelFunc
 }
 
@@ -83,12 +83,14 @@ func Load(configPath, env string, overrides ...Override) (*Tree, error) {
 }
 
 // Raw 返回配置节原样视图（含 from_env 保留键）。
+// 返回的是不可变快照，可安全持有。
 func (t *Tree) Raw(section string) (map[string]any, bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.sectionLocked(section)
 }
 
+// sectionLocked 读当前合并树的指定节；调用方须持有读锁或写锁。
 func (t *Tree) sectionLocked(section string) (map[string]any, bool) {
 	if t.current == nil {
 		return nil, false
@@ -107,6 +109,8 @@ func Decode[T any](t *Tree, section string, base T) (T, error) {
 	return decodeSection(t, section, base)
 }
 
+// decodeSection 是 Decode 的实现体，也是 Watch 投递时的重解码入口：
+// 两者走同一路径，收敛首调与 Decode 结果因此恒一致。
 func decodeSection[T any](t *Tree, section string, base T) (T, error) {
 	t.mu.RLock()
 	m, ok := t.sectionLocked(section)
@@ -165,6 +169,7 @@ func (t *Tree) mergeLocked() map[string]any {
 	return cur
 }
 
+// setBaseLayer 替换基础文件层并重建合并树（文件热更入口）。
 func (t *Tree) setBaseLayer(m map[string]any) {
 	t.mu.Lock()
 	t.base = m
@@ -173,6 +178,7 @@ func (t *Tree) setBaseLayer(m map[string]any) {
 	t.notifyAll()
 }
 
+// setEnvLayer 替换多环境文件层并重建合并树（文件热更入口）。
 func (t *Tree) setEnvLayer(m map[string]any) {
 	t.mu.Lock()
 	t.multiEv = m
