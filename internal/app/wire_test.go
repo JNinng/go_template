@@ -14,7 +14,7 @@ import (
 
 // stubConfig 是符合组件约定的最小配置形态。
 type stubConfig struct {
-	Msg string `yaml:"message"`         // 问候内容
+	Msg string `yaml:"message"`          // 问候内容
 	N   int    `yaml:"interval_seconds"` // 周期秒数（必须 > 0）
 }
 
@@ -160,6 +160,13 @@ func TestUse_NewError(t *testing.T) {
 	}
 	if len(r.entries) != 0 {
 		t.Fatal("failed construct must not register lifecycle")
+	}
+}
+
+func TestWireSource_DefaultEmpty(t *testing.T) {
+	tr, _ := newUseTree(t, "other:\n  a: 1\n")
+	if err := wireSource(tr); err != nil {
+		t.Fatalf("模板内空实现必须返回 nil，got %v", err)
 	}
 }
 

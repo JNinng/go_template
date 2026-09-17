@@ -16,7 +16,7 @@ const (
 )
 
 type entry struct {
-	name  string // 组件名（装配点注册时给定，用于日志与错误归因）
+	name  string                      // 组件名（装配点注册时给定，用于日志与错误归因）
 	start func(context.Context) error // 启动钩子，nil 表示跳过
 	stop  func(context.Context) error // 停止钩子（须幂等），nil 表示跳过
 }

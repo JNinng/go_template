@@ -25,8 +25,8 @@ _Avoid_: 日志后端
 ## 运行时结构
 
 **装配点（wire）**：
-引入组件的唯一触点（`internal/app/wire.go`）。
-_Avoid_: 注册表、容器（均不存在）
+源接线（`wireSource`，先于日志装配）与组件接线（`wire`）双触点，位于 `internal/app/wire.go`，模板内均为空实现。
+_Avoid_: 注册表、容器（均不存在）、vendor 内置包（集成型资产也是组件，走资产 module，无内置类别）
 
 **运行器（runner）**：
 顺序启动、逆序停止、信号、停机预算（`internal/app/runner.go`）。

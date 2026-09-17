@@ -8,7 +8,7 @@ import (
 
 // pushSource 把固定行为注入 Source.Start，用于模拟远程配置中心。
 type pushSource struct {
-	name string // 源名称
+	name string                                                     // 源名称
 	fn   func(ctx context.Context, push func(map[string]any)) error // Start 行为
 }
 

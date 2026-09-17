@@ -15,7 +15,7 @@
 1. 复制本仓库全部内容（不含 `.git`）到新项目目录
 2. 改 `go.mod` 的 module 名（如 `github.com/you/your-service`），全局替换 import 路径
 3. `go build ./... && go test ./...`
-4. 按需引入组件资产：`go get` + 在装配点接线（§11）+ 粘贴配置节
+4. 按需引入组件资产：`go get` + 在装配触点接线（远程源 → `wireSource`，组件 → `wire`；§4/§11）+ 粘贴配置节
 5. `go run ./cmd/app`，Ctrl+C 验证优雅退出
 
 **依赖原则**（单向，环为零）：
@@ -28,12 +28,12 @@
 
 - 组件无法依赖模板——模板是复制型资产，落地后每个项目的 module 路径都不同，依赖天然单向（项目 → 组件）
 - 组件的依赖不受模板约束：组件（尤其第三方库）依赖什么由其自定，模板不设限；observ 只是原生组件的**推荐**抽象面，不是准入门槛
-- 模板自有代码不 import 任何组件；引入组件只发生在装配点 `internal/app/wire.go`（§4、§11）
+- 模板自有代码不 import 任何组件；远程源与组件的引入只发生在装配触点 `internal/app/wire.go`（`wireSource` / `wire`，§4、§11）
 
 ## 2. 验收标准
 
 1. **落地 5 步**：复制 → 改 module 名 → build → run → Ctrl+C 优雅退出（退出码 0）
-2. **引入组件触点**：`go get` + 装配点一行（`app.Use`，或等价手写展开）+ 配置节粘贴（无配置组件省略）；**不修改模板任何既有文件**（`wire.go` 为预留空实现，填入不算修改）
+2. **引入组件触点**：`go get` + 装配触点一行（`app.Use`，或等价手写展开）+ 配置节粘贴（无配置组件省略）；**不修改模板任何既有文件**（`wireSource` 与 `wire` 为预留空实现，填入不算修改）
 3. **依赖白名单**：模板 go.mod 第三方依赖 = cobra、gopkg.in/yaml.v3、fsnotify、observ，四件封顶
 4. **热更可演示**：修改 `log.level` 保存即生效（无需重启）；引入示例组件（附录 A）后其配置节热更同样可演示
 5. **无组件基线**：模板原样运行 = 打印启动行 → 静默等待信号 → 预算内干净退出
@@ -51,21 +51,23 @@ main.go（3 行：internal/cmd.Execute()）
  └─ cobra root = run（默认命令）
      └─ app.Run（唯一启动时序）
          1. config.Load     读本地两层文件（基础 + 多环境）→ 配置树 + 文件监听 + from_env 静态层
-         2. setupLogging    设 observ 默认日志后端 + log 节 level 热更订阅
-         3. meta            解析应用元数据（name / 生效 env / Version），打印启动行
-         4. wire(t, r)      装配点：逐组件 解码配置节 → 构造 → 注册生命周期 →（可选）Watch 热更
-                            远程配置源在此以 Source 适配接入（Attach；先于一切组件装配，§8.5）
-         5. r.Run()         信号 → root ctx → 顺序 Start → 阻塞等待 → 逆序 Stop（预算内）
+         2. wireSource(t)   源接线触点：远程配置源以 Source 接入（Attach，首快照同步）。
+                            先于日志装配——log 节与元数据初值因此含远程层（format/output
+                            等非热更字段方能由远程治理）；引导自配只来自本地层（§8.2）
+         3. setupLogging    设 observ 默认日志后端 + log 节 level 热更订阅
+         4. meta            解析应用元数据（name / 生效 env / Version），打印启动行
+         5. wire(t, r)      组件接线：逐组件 解码配置节 → 构造 → 注册生命周期 →（可选）Watch 热更
+         6. r.Run()         信号 → root ctx → 顺序 Start → 阻塞等待 → 逆序 Stop（预算内）
 ```
 
 | 层 | 成员 | 职责 |
 |---|---|---|
 | 命令层 | `internal/cmd`（cobra） | 参数解析、子命令、进程退出码 |
-| 装配层 | `internal/app`（Run / runner / wire / metadata / logging） | 启动时序、组件接线、优雅停机 |
+| 装配层 | `internal/app`（Run / runner / wireSource+wire / metadata / logging） | 启动时序、源与组件接线、优雅停机 |
 | 配置层 | `internal/config` | 加载、合并、节读取、热更总线、Source 接口、Dump |
 | 组件层 | 外部资产（独立 module） | 一切业务与基础能力 |
 
-引导失败（config.Load、日志装配、wire 任一步出错）时日志可能未就绪：错误信息直写 stderr，进程退出码 1。
+引导失败（config.Load、源接线、日志装配、wire 任一步出错）时日志可能未就绪：错误信息直写 stderr，进程退出码 1。
 
 ## 5. 目录布局
 
@@ -80,7 +82,7 @@ main.go（3 行：internal/cmd.Execute()）
 │   │   ├── logging.go         # 日志装配：observ 默认后端 + level 热更（换 zap 的唯一改动点）
 │   │   ├── metadata.go        # app 节 Meta + Default() + var Version
 │   │   ├── runner.go          # 运行器（§10 给出全文）
-│   │   └── wire.go            # 装配点：引入组件的唯一触点（模板内为空实现）
+│   │   └── wire.go            # 装配触点：源接线 wireSource + 组件接线 wire（模板内均为空实现）
 │   ├── cmd/
 │   │   ├── root.go            # run（默认命令）+ --config / --env / --log-level
 │   │   └── version.go         # version
@@ -230,9 +232,9 @@ type Source interface {
 }
 ```
 
-- Source 由组件资产（如 nacos 客户端）+ 装配点适配胶水构成，模板只认此接口（适配示例见附录 B）。
+- Source 由组件资产（如 nacos 客户端）构成，模板只认此接口；Source 的签名全部由朴素类型构成，**可由结构化类型满足**——资产零 import 模板、暴露同签名方法即可直传 `Attach`，无需适配胶水（接入示例见附录 B）。
 - 不可达策略（fail / disable）是组件资产的客户端选项，不是模板机制。
-- **装配纪律——先源后组件**：wire 内所有 `Attach` 必须先于一切组件装配；配合 `Attach` 的首快照同步语义，组件初值因此总是完整的"本地 + 远程 + 静态层"合并结果，不存在"后附源靠热更收敛"的时序歧义。
+- **装配纪律——先源后一切**：源接线（`wireSource`）先于日志装配与一切组件装配；配合 `Attach` 的首快照同步语义，日志初值与组件初值都总是完整的"本地 + 远程 + 静态层"合并结果，不存在"后附源靠热更收敛"的时序歧义（非热更字段如 `log.format` 也因此可由远程治理）。
 
 ### 8.6 热更总线契约
 
@@ -451,6 +453,7 @@ func (r *runner) shutdown(n int) error {
 - **原生组件**：按本约定编写，原生适配配置节、observ 等能力。
 - **适配组件**：对既有第三方库（如 go-redis）包一层薄壳，使之符合约定；壳可由业务自写，也可由资产作者发布为适配资产。
 - 组件是普通 Go module，可以放独立仓库（不同 git 组织亦可，见 §12）。约定只面向**想要紧密贴合模板的原生组件**；第三方库无需满足任何约定——它保持原样，贴合发生在适配层。组件的依赖自由：依赖什么由组件自定（物理上也无法依赖模板——复制型资产没有稳定 import 路径）；observ 是原生组件的推荐抽象面，不是门槛。
+- **集成型资产（配置中心、注册中心、缓存等基础设施工客户端）也是普通组件**：与业务组件同约定、同准入（§11.6）、同登记（§12），不存在"内置 vendor 包"之类的特殊类别——集成物的复杂逻辑与测试住在资产 module 内，修复经 `go get -u` 传播；若内置进模板，复制型消费会把适配器 bug 冻结在每个项目副本里（ADR-0001 拒绝复制型资产的同一理由）。
 
 ### 11.2 生命周期签名
 
@@ -503,7 +506,7 @@ func (c *Component) Client() *someclient.Client     // 可选：类型化访问�
 引入组件 = 装配点一行（装配辅助）或三行手写，二者等价；辅助是糖，不是唯一路径：
 
 ```go
-// internal/app/wire.go —— 装配点：引入组件的唯一触点
+// internal/app/wire.go —— 组件接线触点（源接线见 wireSource，先于日志装配）
 func wire(t *config.Tree, r *runner) error {
     // 辅助式：Default 与 New 在 Use 签名上成对出现，默认值只写一处。
     // newFn 形参是 func(Cfg) (C, error)：New 不带 option 的组件可直传；
@@ -715,29 +718,29 @@ greeter:
 
 nacos 是原生组件资产的接入参考（单仓库两包；状态见 [ASSETS.md](./ASSETS.md)）：
 
-- `nacos/cfg`——配置中心客户端：连接、订阅 dataId、推送全量快照。自带 `unreachable: fail | disable` 客户端选项（fail = 启动报错；disable = 告警后以纯本地配置继续，热更停摆）。配置中心与服务中心地址、凭据**分立**（两个子节），两者常为不同集群、故障域独立。
+- `nacos/cfg`——配置中心客户端：连接、订阅 dataId、推送全量快照。自带 `unreachable: fail | disable` 客户端选项（fail = 启动报错；disable = 告警后以纯本地配置继续，热更停摆）。配置中心与服务中心地址、凭据**分立**（两个子节），两者常为不同集群、故障域独立。`nacos/cfg` 以 Source 兼容签名暴露（`Name` + `Start`，§8.5 结构化类型），装配侧零胶水直传 `Attach`。
 - `nacos/reg`——服务注册客户端：注册、心跳、注销，标准生命周期签名，`Stop` 即注销。启用时需要 service name / port（装配点传 `meta.Name`）。
 
-装配点适配参考（Source 接口见 §8.5）：
+装配触点参考（Source 接口见 §8.5；cfg 接源触点、reg 接组件触点）：
 
 ```go
-func wireNacos(t *config.Tree, r *runner) error { // 示意
+// wireSource：源触点——先于日志装配（§4 时序），引导自配只来自本地层
+func wireSource(t *config.Tree) error { // 示意
     cfg, err := config.Decode(t, "nacos", nacos.Default())
     if err != nil {
         return err
     }
-    cc, err := nacos.NewCfgClient(cfg)
+    cc, err := nacos.NewCfgClient(cfg) // Start 兼容 Source 签名（§8.5 结构化类型）
     if err != nil {
         return err // unreachable=fail 在此报错
     }
-    t.Attach(&nacosSource{cc}) // ~15 行适配：把客户端快照推送接到 Source.push
-    reg, err := nacos.NewReg(/* meta.Name, 端口, 凭据 */)
-    if err != nil {
-        return err
-    }
-    r.Add("nacos-reg", reg.Start, reg.Stop)
-    return nil
+    return t.Attach(cc) // 首快照同步：返回时树已含远程层，日志/组件初值完整
 }
+
+// wire：组件触点——注册中心是普通组件，走标准生命周期
+//   reg, err := nacos.NewReg(/* meta.Name, 端口, 凭据 */)
+//   if err != nil { return err }
+//   r.Add("nacos-reg", reg.Start, reg.Stop)
 ```
 
 nacos 节为启动期配置：不实现 `ApplyConfig`，变更仅下次启动生效（配置中心自身的连接参数无法热切换）。

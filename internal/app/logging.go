@@ -27,7 +27,7 @@ func logDefault() logConfig {
 
 // setupLogging 设 observ 默认日志后端并订阅 log 节 level 热更。
 // 换后端（如 zap）时这是唯一改动点。output 为文件时注册停机关闭钩子
-//（stdlib handler 无缓冲，纯卫生，不丢数据）。
+// （stdlib handler 无缓冲，纯卫生，不丢数据）。
 func setupLogging(t *config.Tree, r *runner) error {
 	cfg, err := config.Decode(t, "log", logDefault())
 	if err != nil {
