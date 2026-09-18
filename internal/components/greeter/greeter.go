@@ -1,6 +1,8 @@
 // Package greeter 周期打印问候语：内置组件库的完整约定样例——
 // Config/Default、New 构造校验、生命周期、ApplyConfig 热更、observ 注入。
-// 同模块内直接 import 即可试用；深度定制时拷出到自己的包改造。
+// 直接 import 即可试用；深度定制时拷出到自己的包改造。
+//
+// 第三方依赖：无（仅 stdlib + observ）。
 package greeter
 
 import (

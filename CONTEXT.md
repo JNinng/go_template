@@ -13,9 +13,9 @@ _Avoid_: 框架（不可被 import 依赖）
 _Avoid_: 插件（无运行时注册/发现机制）
 
 **内置组件（内置组件库）**：
-与模板同 module 的轻量组件（`internal/components/`，仅依赖 stdlib + observ）；
-直接 import 试用，或拷出改造为项目自有组件。
-_Avoid_: vendor（Go 工具链保留目录名，包不可导入）、把重型集成放进内置库（依赖会进每个复制体的 go.mod）
+随模板分发的组件菜单（`internal/components/`，每组件独立包，依赖不设限）；
+需要的直接 import 或拷出改造，不需要的删除后 `go mod tidy` 依赖即清零。
+_Avoid_: vendor（Go 工具链保留目录名，包不可导入）
 
 **原生组件**：
 遵循 [DESIGN.md](./docs/DESIGN.md) §11 约定编写的组件，原生适配配置节、observ 等能力。
