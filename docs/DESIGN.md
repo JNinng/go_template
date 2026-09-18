@@ -15,7 +15,7 @@
 1. 复制本仓库全部内容（不含 `.git`）到新项目目录
 2. 改 `go.mod` 的 module 名（如 `github.com/you/your-service`），全局替换 import 路径
 3. `go build ./... && go test ./...`
-4. 按需引入组件资产：`go get` + 在装配触点接线（远程源 → `wireSource`，组件 → `wire`；§4/§11）+ 粘贴配置节
+4. 按需引入组件资产：`go get` + 在装配入口接线（远程源 → `setupSources`，业务组件 → `setupBiz`；§4/§11）+ 粘贴配置节
 5. `go run ./cmd/app`，Ctrl+C 验证优雅退出
 
 **依赖原则**（单向，环为零）：
@@ -28,17 +28,17 @@
 
 - 组件无法依赖模板——模板是复制型资产，落地后每个项目的 module 路径都不同，依赖天然单向（项目 → 组件）
 - 组件的依赖不受模板约束：组件（尤其第三方库）依赖什么由其自定，模板不设限；observ 只是原生组件的**推荐**抽象面，不是准入门槛
-- 模板自有代码不 import 任何组件；远程源与组件的引入只发生在装配触点 `internal/app/wire.go`（`wireSource` / `wire`，§4、§11）
+- 模板自有代码不 import 任何组件；远程源与业务组件的引入只发生在两处装配入口：`internal/app/sources.go` 的 `setupSources`、`internal/app/biz.go` 的 `setupBiz`（§4、§11）
 
 ## 2. 验收标准
 
 1. **落地 5 步**：复制 → 改 module 名 → build → run → Ctrl+C 优雅退出（退出码 0）
-2. **引入组件触点**：`go get` + 装配触点一行（远程源 → `wireSource`；业务组件 → 业务入口 `biz.go` 的 `app.Use`，或等价手写展开）+ 配置节粘贴（无配置组件省略）；**不修改模板任何既有文件**（`wireSource` / `wire` 为预留空实现；`setupBiz` 内置占位业务 `biz.Hello`，替换该包即接入真实业务）
+2. **引入组件触点**：`go get` + 装配入口一处（远程源 → `setupSources`；业务组件 → 业务入口 `biz.go` 的 `AddComponent`，或等价手写展开）+ 配置节粘贴（无配置组件省略）；**不修改模板任何既有文件**（`setupSources` 为预留空实现；`setupBiz` 内置占位业务 `biz.Hello`，替换该包即接入真实业务）
 3. **依赖白名单**：模板 go.mod 第三方依赖 = cobra、gopkg.in/yaml.v3、fsnotify、observ，四件封顶
 4. **热更可演示**：修改 `log.level` 保存即生效（无需重启）；引入示例组件（附录 A）后其配置节热更同样可演示
 5. **占位基线**：模板原样运行 = announce 启动行 + 占位业务一行（`biz_started`）→ 静默等待信号 → 预算内干净退出；两组件同场演示多组件组合与启停顺序
 6. **fail-fast**：任一组件构造或启动失败 → 已启动者逆序停止 → 退出码 1
-7. **模板自带测试**：`go test ./...` 覆盖难点单测——config 包（合并分层、from_env 收集与类型推断、严格解码、Watch 收敛/合并/取消、多环境文件名推导）、runner（顺序启动/逆序停止、Start 失败回滚、停机预算）、logging（level 热更）、`app.Use`（测试内 stub 组件）；信号触发路径仅 POSIX build-tag 测试。验收 5 步保持手动演示。
+7. **模板自带测试**：`go test ./...` 覆盖难点单测——config 包（合并分层、from_env 收集与类型推断、严格解码、Watch 收敛/合并/取消、多环境文件名推导）、runner（顺序启动/逆序停止、Start 失败回滚、停机预算）、logging（level 热更）、`AddComponent`（测试内 stub 组件）；信号触发路径仅 POSIX build-tag 测试。验收 5 步保持手动演示。
 
 ## 3. 术语表
 
@@ -51,14 +51,14 @@ main.go（3 行：internal/cmd.Execute()）
  └─ cobra root = run（默认命令）
      └─ app.Run（唯一启动时序）
          1. config.Load     读本地两层文件（基础 + 多环境）→ 配置树 + 文件监听 + from_env 静态层
-         2. wireSource(t)   源接线触点：远程配置源以 Source 接入（Attach，首快照同步）。
+         2. setupSources(t) 接入远程配置源（Attach，首快照同步）。
                             先于日志装配——log 节与元数据初值因此含远程层（format/output
                             等非热更字段方能由远程治理）；引导自配只来自本地层（§8.2）
          3. setupLogging    设 observ 默认日志后端 + log 节 level 热更订阅
          4. meta            解析应用元数据（name / 生效 env / Version），注册 announce 启动行组件
                              （首个启动者，§7）
-         5. wire(t, r, meta) 组件接线：转发至业务入口 setupBiz（biz.go）——业务组件在此
-                             解码配置节 → 构造 → 注册生命周期 →（可选）Watch 热更；
+         5. setupBiz(t, r, meta) 装配业务组件（业务入口 biz.go）：解码配置节 → 构造 →
+                             注册生命周期 →（可选）热更订阅；
                              meta 供需要元数据的组件使用（如注册组件传 meta.Name）
          6. r.Run()         信号 → root ctx → 顺序 Start → 阻塞等待 → 逆序 Stop（预算内）
 ```
@@ -66,11 +66,11 @@ main.go（3 行：internal/cmd.Execute()）
 | 层 | 成员 | 职责 |
 |---|---|---|
 | 命令层 | `internal/cmd`（cobra） | 参数解析、子命令、进程退出码 |
-| 装配层 | `internal/app`（Run / runner / wireSource+wire / metadata / logging） | 启动时序、源与组件接线、优雅停机 |
+| 装配层 | `internal/app`（Run / runner / setupSources+setupBiz / metadata / logging） | 启动时序、源与组件装配、优雅停机 |
 | 配置层 | `internal/config` | 加载、合并、节读取、热更总线、Source 接口、Dump |
 | 组件层 | 外部资产（独立 module） | 一切业务与基础能力 |
 
-引导失败（config.Load、源接线、日志装配、wire 任一步出错）时日志可能未就绪：错误信息直写 stderr，进程退出码 1。
+引导失败（config.Load、远程源接入、日志装配、业务装配任一步出错）时日志可能未就绪：错误信息直写 stderr，进程退出码 1。
 
 ## 5. 目录布局
 
@@ -81,13 +81,14 @@ main.go（3 行：internal/cmd.Execute()）
 ├── cmd/app/main.go            # 3 行：internal/cmd.Execute()
 ├── internal/
 │   ├── app/
-│   │   ├── app.go             # Run()：config → logging → meta → wire → runner 时序
+│   │   ├── app.go             # Run()：config → sources → logging → meta → biz → runner 时序
 │   │   ├── logging.go         # 日志装配：observ 默认后端 + level 热更（换 zap 的唯一改动点）
 │   │   ├── metadata.go        # app 节 Meta + Default() + var Version
 │   │   ├── runner.go          # 运行器（§10 给出全文）
 │   │   ├── announce.go        # announce 组件：启动行（首个启动者，与 biz 组件演示多组件组合）
 │   │   ├── biz.go             # 业务装配入口：业务组件接线（内置占位业务 biz.Hello，业务逻辑定位点）
-│   │   └── wire.go            # 装配触点：源接线 wireSource + 组件接线 wire（模板内均为空实现）
+│   │   ├── sources.go         # 远程源接入 setupSources（模板内为空实现）
+│   │   └── component.go       # AddComponent 装配辅助：解码 → 构造 → 注册 → 可选热更
 │   ├── cmd/
 │   │   ├── root.go            # run（默认命令）+ --config / --env / --log-level
 │   │   └── version.go         # version
@@ -182,7 +183,7 @@ CLI 库为 cobra。命令集两个，刻意收敛：
 
 - 合并语义：map 深合并；标量与数组整体覆盖，不做数组拼接。
 - **静态覆盖层**（from_env、flag）在启动时一次性生效，其后文件与远程的任何变更都不改写其结果；每次树重建时静态层重新套用。
-- 热更引发的每次树重建与重解码，都按同一分层重新合并——代码默认值始终是基座、静态层始终在栈顶，**运行时覆盖与启动时同构**（§11.5 的 `app.Use` / `config.Watch` 重解码即依赖此性质）。
+- 热更引发的每次树重建与重解码，都按同一分层重新合并——代码默认值始终是基座、静态层始终在栈顶，**运行时覆盖与启动时同构**（§11.5 的 `AddComponent` / `config.Watch` 重解码即依赖此性质）。
 - 远程源对配置的解析失败：记日志丢弃该快照，维持上一有效树（全量快照语义下最终一致）。本地文件变更解析失败同理。
 - `nacos.config` 一类的"引导自身所需"配置只能来自本地层（读它时远程尚未连通），由组件文档声明，模板不特殊处理。
 
@@ -241,7 +242,7 @@ type Source interface {
 
 - Source 由组件资产（如 nacos 客户端）构成，模板只认此接口；Source 的签名全部由朴素类型构成，**可由结构化类型满足**——资产零 import 模板、暴露同签名方法即可直传 `Attach`，无需适配胶水（接入示例见附录 B）。
 - 不可达策略（fail / disable）是组件资产的客户端选项，不是模板机制。
-- **装配纪律——先源后一切**：源接线（`wireSource`）先于日志装配与一切组件装配；配合 `Attach` 的首快照同步语义，日志初值与组件初值都总是完整的"本地 + 远程 + 静态层"合并结果，不存在"后附源靠热更收敛"的时序歧义（非热更字段如 `log.format` 也因此可由远程治理）。
+- **装配纪律——先源后一切**：源接线（`setupSources`）先于日志装配与一切组件装配；配合 `Attach` 的首快照同步语义，日志初值与组件初值都总是完整的"本地 + 远程 + 静态层"合并结果，不存在"后附源靠热更收敛"的时序歧义（非热更字段如 `log.format` 也因此可由远程治理）。
 
 ### 8.6 热更总线契约
 
@@ -259,7 +260,7 @@ type Source interface {
 **持有规则**：
 
 - **模板包**：不持有 logger 字段，调用点动态读 `observ.DefaultLogger()`（atomic 读，无锁；模板无高频路径，读取代价可忽略）。原因：config 包的构造早于日志装配（`log:` 节在配置里，先有配置后有后端），构造期快照会永久固定在 Noop；动态读同时保证换后端对已构造的模板设施立即生效。
-- **组件资产**：不做统一要求。原生组件推荐按 observ 规范——`WithLogger(observ.Logger)` option 显式注入（测试捕获用），未注入时构造期快照 `observ.DefaultLogger()`，组件构造发生在装配点、晚于后端设置，快照即正确后端。**源角色组件例外**：在 `wireSource` 构造（早于日志装配），快照会永久固定在 Noop——此类组件须动态读 `observ.DefaultLogger()`（低频路径，代价可忽略），不可达降级类高信号告警宜双通道（observ + 直写 stderr）保底（nacos 资产即此形态）。第三方组件按其自身日志面经适配层桥接（见下表）。
+- **组件资产**：不做统一要求。原生组件推荐按 observ 规范——`WithLogger(observ.Logger)` option 显式注入（测试捕获用），未注入时构造期快照 `observ.DefaultLogger()`，组件构造发生在装配点、晚于后端设置，快照即正确后端。**源角色组件例外**：在 `setupSources` 构造（早于日志装配），快照会永久固定在 Noop——此类组件须动态读 `observ.DefaultLogger()`（低频路径，代价可忽略），不可达降级类高信号告警宜双通道（observ + 直写 stderr）保底（nacos 资产即此形态）。第三方组件按其自身日志面经适配层桥接（见下表）。
 
 **装配点**（`internal/app/logging.go`，换后端的唯一改动处）：
 
@@ -301,7 +302,7 @@ func setupLogging(t *config.Tree, r *runner) error {
 
 **不做文件轮转**：`output` 文件仅追加。轮转归属部署侧（logrotate / 容器 runtime）或业务换入的 zap 方案——这是缺省日志链路保持零第三方依赖的边界。
 
-**原生组件如何拿到日志**：不显式传递。装配点保证 setupLogging 先于 wire，组件构造期快照 `observ.DefaultLogger()` 即正确后端；显式 `WithLogger` 注入保留给测试。模板与原生组件共享同一个包级默认，无传递机制。第三方组件不经此路径，按其日志面形态桥接（见下表）。
+**原生组件如何拿到日志**：不显式传递。启动时序保证 setupLogging 先于组件装配，组件构造期快照 `observ.DefaultLogger()` 即正确后端；显式 `WithLogger` 注入保留给测试。模板与原生组件共享同一个包级默认，无传递机制。第三方组件不经此路径，按其日志面形态桥接（见下表）。
 
 **第三方库的日志面**（适配组件的桥接规则，按库接口形态三选一）：
 
@@ -321,7 +322,7 @@ observ.SetDefaultLogger(zaplog.New(z))   // 模板与组件全部换向（observ
 // 可选：把仍走 slog.Default() 的第三方库重指向 zap（zap 生态的 slog handler）
 ```
 
-业务代码直调 zap，不经任何桥接层；模板与组件经 zaplog 适配器直抵 zap，零改动（动态读与 wire 前换向都指向新后端）。level 热更由 zap 动态级别承接（如 `zapcore.NewAtomicLevel`）。
+业务代码直调 zap，不经任何桥接层；模板与组件经 zaplog 适配器直抵 zap，零改动（动态读与装配期换向都指向新后端）。level 热更由 zap 动态级别承接（如 `zapcore.NewAtomicLevel`）。
 
 **Meter**：模板不装配指标出口——组件经 observ.Meter 埋点时缺省 Noop、零开销；业务需要真实指标时，在装配点构造 prom 适配器并经组件 option 注入（与日志同一注入规范），模板自身对 Meter 无任何装配代码。
 
@@ -506,19 +507,19 @@ func (c *Component) Client() *someclient.Client     // 可选：类型化访问�
 
 ### 11.4 并发纪律
 
-原生组件以 observ 接入规范为纪律基线：option 注入（`WithLogger` / `WithMeter`，缺省 Noop / 默认快照；**在 wireSource 构造的源角色组件例外——日志动态读而非快照**，其构造早于日志装配）；回调在调用方 goroutine 同步执行且必须快速返回；回调 panic 由组件 recover；热路径只做指标埋点，日志仅用于低频生命周期事件。第三方组件的并发行为由其自管，不在约定范围内。
+原生组件以 observ 接入规范为纪律基线：option 注入（`WithLogger` / `WithMeter`，缺省 Noop / 默认快照；**在 setupSources 构造的源角色组件例外——日志动态读而非快照**，其构造早于日志装配）；回调在调用方 goroutine 同步执行且必须快速返回；回调 panic 由组件 recover；热路径只做指标埋点，日志仅用于低频生命周期事件。第三方组件的并发行为由其自管，不在约定范围内。
 
 ### 11.5 装配形态（模板侧）
 
-业务组件的接线集中在**业务装配入口** `internal/app/biz.go`（`setupBiz`，`wire` 只做转发）——业务逻辑的定位点，业务代码与模板机制（Use / lifecycle / wireSource）由此分家。模板内置占位业务 `biz.Hello`（启动输出一句日志）演示完整接入链路，项目落地后替换 `internal/biz` 包即可。引入组件 = 装配点一行（装配辅助）或三行手写，二者等价；辅助是糖，不是唯一路径：
+业务组件的装配集中在**业务装配入口** `internal/app/biz.go`（`setupBiz`，Run 直接调用）——业务逻辑的定位点，业务代码与模板机制（AddComponent / lifecycle / setupSources）由此分家。模板内置占位业务 `biz.Hello`（启动输出一句日志）演示完整接入链路，项目落地后替换 `internal/biz` 包即可。引入组件 = 装配点一行（装配辅助）或三行手写，二者等价；辅助是糖，不是唯一路径：
 
 ```go
-// internal/app/biz.go —— 业务装配入口（wire 只做转发，见上）
+// internal/app/biz.go —— 业务装配入口（Run 第 5 步直接调用）
 func setupBiz(t *config.Tree, r *runner, meta Meta) error {
-    // 辅助式：Default 与 New 在 Use 签名上成对出现，默认值只写一处。
+    // 辅助式：Default 与 New 在 AddComponent 签名上成对出现，默认值只写一处。
     // newFn 形参是 func(Cfg) (C, error)：New 不带 option 的组件可直传；
     // 带约定的 opts ...Option 时传闭包（greeter 带 WithLogger，故用闭包）：
-    g, err := Use(t, r, "greeter", greeter.Default(),
+    g, err := AddComponent(t, r, "greeter", greeter.Default(),
         func(c greeter.Config) (*greeter.Greeter, error) { return greeter.New(c) })
     if err != nil {
         return err
@@ -537,7 +538,7 @@ func setupBiz(t *config.Tree, r *runner, meta Meta) error {
 }
 ```
 
-`app.Use`（模板自有代码，约 20 行）：
+`AddComponent`（模板自有代码，约 20 行）：
 
 ```go
 // internal/app
@@ -548,10 +549,10 @@ type lifecycle interface {
 
 type applier[Cfg any] interface{ ApplyConfig(Cfg) error }
 
-// Use：解码（基座 def）→ newFn 构造 → 注册生命周期；
+// AddComponent：解码（基座 def）→ newFn 构造 → 注册生命周期；
 // 组件实现 ApplyConfig(Cfg) 时自动订阅节热更（重解码仍以 def 为基座）。
 // 接口由 Go 结构化类型满足——组件零 import 即被识别。
-func Use[Cfg any, C lifecycle](t *config.Tree, r *runner,
+func AddComponent[Cfg any, C lifecycle](t *config.Tree, r *runner,
     section string, def Cfg, newFn func(Cfg) (C, error)) (C, error) {
     cfg, err := config.Decode(t, section, def)
     if err != nil {
@@ -571,10 +572,10 @@ func Use[Cfg any, C lifecycle](t *config.Tree, r *runner,
 }
 ```
 
-组件间依赖在装配点显式传参（`Use` 的返回值直接喂给下一个组件）：
+组件间依赖在装配点显式传参（`AddComponent` 的返回值直接喂给下一个组件）：
 
 ```go
-rdb, err := app.Use(t, r, "redis", redis.Default(),
+rdb, err := AddComponent(t, r, "redis", redis.Default(),
     func(c redis.Config) (*redis.Redis, error) { return redis.New(c) })
 biz, err := biz.New(biz.Config{…}, biz.WithRedis(rdb.Client())) // 方向显式：业务 → 基础组件
 r.Add("biz", biz.Start, biz.Stop)
@@ -731,8 +732,8 @@ nacos 是原生组件资产的接入参考（单仓库单包、cfg/reg 两客户
 装配触点参考（Source 接口见 §8.5；cfg 接源触点、reg 接组件触点）：
 
 ```go
-// wireSource：源触点——先于日志装配（§4 时序），引导自配只来自本地层
-func wireSource(t *config.Tree) error { // 示意
+// setupSources：源触点——先于日志装配（§4 时序），引导自配只来自本地层
+func setupSources(t *config.Tree) error { // 示意
     cfg, err := config.Decode(t, "nacos", nacos.Default())
     if err != nil {
         return err
@@ -744,13 +745,13 @@ func wireSource(t *config.Tree) error { // 示意
     return t.Attach(cc) // 首快照同步：返回时树已含远程层，日志/组件初值完整
 }
 
-// wire：组件触点——注册中心是普通组件，走标准生命周期
+// setupBiz：业务装配——注册中心是普通组件，走标准生命周期
 //   reg, err := nacos.NewReg(cfg, meta.Name, 8080) // 实例标识传参：serviceName 传 meta.Name
 //   if err != nil { return err }
 //   r.Add("nacos-reg", reg.Start, reg.Stop)
 ```
 
-不可达降级（unreachable=disable）的高信号告警由资产双通道发出（observ 动态读 + 直写 stderr）——cfg 角色的降级发生在引导窗口（wireSource 早于日志装配），单靠 observ 会被 Noop 吞掉。
+不可达降级（unreachable=disable）的高信号告警由资产双通道发出（observ 动态读 + 直写 stderr）——cfg 角色的降级发生在引导窗口（setupSources 早于日志装配），单靠 observ 会被 Noop 吞掉。
 
 nacos 节为启动期配置：不实现 `ApplyConfig`，变更仅下次启动生效（配置中心自身的连接参数无法热切换）。
 

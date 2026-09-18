@@ -69,11 +69,11 @@ func newUseTree(t *testing.T, sectionContent string) (*config.Tree, string) {
 	return tr, dir
 }
 
-func TestUse_DecodeConstructRegister(t *testing.T) {
+func TestAddComponent_DecodeConstructRegister(t *testing.T) {
 	tr, _ := newUseTree(t, "stub:\n  message: hi\n  interval_seconds: 3\n")
 	r := new(runner)
 
-	c, err := Use(tr, r, "stub", stubDefault(),
+	c, err := AddComponent(tr, r, "stub", stubDefault(),
 		func(c stubConfig) (*stubComp, error) { return newStub(c) })
 	if err != nil {
 		t.Fatal(err)
@@ -94,10 +94,10 @@ func TestUse_DecodeConstructRegister(t *testing.T) {
 	}
 }
 
-func TestUse_AutoSubscribesApplyConfig(t *testing.T) {
+func TestAddComponent_AutoSubscribesApplyConfig(t *testing.T) {
 	tr, _ := newUseTree(t, "stub:\n  message: hi\n  interval_seconds: 3\n")
 	r := new(runner)
-	c, err := Use(tr, r, "stub", stubDefault(),
+	c, err := AddComponent(tr, r, "stub", stubDefault(),
 		func(cfg stubConfig) (*stubComp, error) { return newStub(cfg) })
 	if err != nil {
 		t.Fatal(err)
@@ -143,18 +143,18 @@ func TestUse_AutoSubscribesApplyConfig(t *testing.T) {
 	t.Fatal("ApplyConfig did not receive hot-reloaded config")
 }
 
-func TestUse_DecodeError(t *testing.T) {
+func TestAddComponent_DecodeError(t *testing.T) {
 	tr, _ := newUseTree(t, "stub:\n  unknown_key: 1\n")
-	if _, err := Use(tr, new(runner), "stub", stubDefault(),
+	if _, err := AddComponent(tr, new(runner), "stub", stubDefault(),
 		func(stubConfig) (*stubComp, error) { return &stubComp{}, nil }); err == nil {
 		t.Fatal("unknown key must fail decode")
 	}
 }
 
-func TestUse_NewError(t *testing.T) {
+func TestAddComponent_NewError(t *testing.T) {
 	tr, _ := newUseTree(t, "stub:\n  interval_seconds: 0\n")
 	r := new(runner)
-	if _, err := Use(tr, r, "stub", stubDefault(),
+	if _, err := AddComponent(tr, r, "stub", stubDefault(),
 		func(cfg stubConfig) (*stubComp, error) { return newStub(cfg) }); err == nil {
 		t.Fatal("New failure must propagate")
 	}
@@ -165,7 +165,7 @@ func TestUse_NewError(t *testing.T) {
 
 func TestWireSource_DefaultEmpty(t *testing.T) {
 	tr, _ := newUseTree(t, "other:\n  a: 1\n")
-	if err := wireSource(tr); err != nil {
+	if err := setupSources(tr); err != nil {
 		t.Fatalf("模板内空实现必须返回 nil，got %v", err)
 	}
 }

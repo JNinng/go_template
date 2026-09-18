@@ -70,7 +70,7 @@ func TestRun_MultiComponentOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.Add("announce", newAnnouncer(meta, eff).Start, nil)
-	if err := wire(tr, r, meta); err != nil {
+	if err := setupBiz(tr, r, meta); err != nil {
 		t.Fatal(err)
 	}
 	if len(r.entries) != 2 || r.entries[0].name != "announce" || r.entries[1].name != "biz" {

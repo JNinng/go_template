@@ -7,7 +7,7 @@ Go 长驻服务的项目模板：命令、应用元数据、配置（两层文�
 1. 复制本仓库全部内容（不含 `.git`）到新项目目录
 2. 改 `go.mod` 的 module 名（如 `github.com/you/your-service`），全局替换 import 路径
 3. `go build ./... && go test ./...`
-4. 按需引入组件资产：`go get` + 在装配触点接线（远程源 → `internal/app/wire.go` 的 `wireSource`；业务组件 → **业务入口 `internal/app/biz.go`**，`app.Use` 或等价手写展开）+ 粘贴配置节
+4. 按需引入组件资产：`go get` + 在装配入口接线（远程源 → `internal/app/sources.go` 的 `setupSources`；业务组件 → **业务入口 `internal/app/biz.go`**，`AddComponent` 或等价手写展开）+ 粘贴配置节
 5. `go run ./cmd/app`，Ctrl+C 验证优雅退出（退出码 0）
 
 ## 命令
