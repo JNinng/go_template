@@ -56,7 +56,8 @@ main.go（3 行：internal/cmd.Execute()）
                             等非热更字段方能由远程治理）；引导自配只来自本地层（§8.2）
          3. setupLogging    设 observ 默认日志后端 + log 节 level 热更订阅
          4. meta            解析应用元数据（name / 生效 env / Version），打印启动行
-         5. wire(t, r)      组件接线：逐组件 解码配置节 → 构造 → 注册生命周期 →（可选）Watch 热更
+         5. wire(t, r, meta) 组件接线：逐组件 解码配置节 → 构造 → 注册生命周期 →（可选）Watch 热更
+                             （meta 供需要元数据的组件使用，如注册组件传 meta.Name）
          6. r.Run()         信号 → root ctx → 顺序 Start → 阻塞等待 → 逆序 Stop（预算内）
 ```
 
@@ -252,7 +253,7 @@ type Source interface {
 **持有规则**：
 
 - **模板包**：不持有 logger 字段，调用点动态读 `observ.DefaultLogger()`（atomic 读，无锁；模板无高频路径，读取代价可忽略）。原因：config 包的构造早于日志装配（`log:` 节在配置里，先有配置后有后端），构造期快照会永久固定在 Noop；动态读同时保证换后端对已构造的模板设施立即生效。
-- **组件资产**：不做统一要求。原生组件推荐按 observ 规范——`WithLogger(observ.Logger)` option 显式注入（测试捕获用），未注入时构造期快照 `observ.DefaultLogger()`，组件构造发生在装配点、晚于后端设置，快照即正确后端；第三方组件按其自身日志面经适配层桥接（见下表）。
+- **组件资产**：不做统一要求。原生组件推荐按 observ 规范——`WithLogger(observ.Logger)` option 显式注入（测试捕获用），未注入时构造期快照 `observ.DefaultLogger()`，组件构造发生在装配点、晚于后端设置，快照即正确后端。**源角色组件例外**：在 `wireSource` 构造（早于日志装配），快照会永久固定在 Noop——此类组件须动态读 `observ.DefaultLogger()`（低频路径，代价可忽略），不可达降级类高信号告警宜双通道（observ + 直写 stderr）保底（nacos 资产即此形态）。第三方组件按其自身日志面经适配层桥接（见下表）。
 
 **装配点**（`internal/app/logging.go`，换后端的唯一改动处）：
 
@@ -499,7 +500,7 @@ func (c *Component) Client() *someclient.Client     // 可选：类型化访问�
 
 ### 11.4 并发纪律
 
-原生组件以 observ 接入规范为纪律基线：option 注入（`WithLogger` / `WithMeter`，缺省 Noop / 默认快照）；回调在调用方 goroutine 同步执行且必须快速返回；回调 panic 由组件 recover；热路径只做指标埋点，日志仅用于低频生命周期事件。第三方组件的并发行为由其自管，不在约定范围内。
+原生组件以 observ 接入规范为纪律基线：option 注入（`WithLogger` / `WithMeter`，缺省 Noop / 默认快照；**在 wireSource 构造的源角色组件例外——日志动态读而非快照**，其构造早于日志装配）；回调在调用方 goroutine 同步执行且必须快速返回；回调 panic 由组件 recover；热路径只做指标埋点，日志仅用于低频生命周期事件。第三方组件的并发行为由其自管，不在约定范围内。
 
 ### 11.5 装配形态（模板侧）
 
@@ -507,7 +508,7 @@ func (c *Component) Client() *someclient.Client     // 可选：类型化访问�
 
 ```go
 // internal/app/wire.go —— 组件接线触点（源接线见 wireSource，先于日志装配）
-func wire(t *config.Tree, r *runner) error {
+func wire(t *config.Tree, r *runner, meta Meta) error {
     // 辅助式：Default 与 New 在 Use 签名上成对出现，默认值只写一处。
     // newFn 形参是 func(Cfg) (C, error)：New 不带 option 的组件可直传；
     // 带约定的 opts ...Option 时传闭包（greeter 带 WithLogger，故用闭包）：
@@ -716,7 +717,7 @@ greeter:
 
 ## 附录 B：nacos 接入参考
 
-nacos 是原生组件资产的接入参考（单仓库两包；状态见 [ASSETS.md](./ASSETS.md)）：
+nacos 是原生组件资产的接入参考（单仓库单包、cfg/reg 两客户端；状态见 [ASSETS.md](./ASSETS.md)）：
 
 - `nacos/cfg`——配置中心客户端：连接、订阅 dataId、推送全量快照。自带 `unreachable: fail | disable` 客户端选项（fail = 启动报错；disable = 告警后以纯本地配置继续，热更停摆）。配置中心与服务中心地址、凭据**分立**（两个子节），两者常为不同集群、故障域独立。`nacos/cfg` 以 Source 兼容签名暴露（`Name` + `Start`，§8.5 结构化类型），装配侧零胶水直传 `Attach`。
 - `nacos/reg`——服务注册客户端：注册、心跳、注销，标准生命周期签名，`Stop` 即注销。启用时需要 service name / port（装配点传 `meta.Name`）。
@@ -738,10 +739,12 @@ func wireSource(t *config.Tree) error { // 示意
 }
 
 // wire：组件触点——注册中心是普通组件，走标准生命周期
-//   reg, err := nacos.NewReg(/* meta.Name, 端口, 凭据 */)
+//   reg, err := nacos.NewReg(cfg, meta.Name, 8080) // 实例标识传参：serviceName 传 meta.Name
 //   if err != nil { return err }
 //   r.Add("nacos-reg", reg.Start, reg.Stop)
 ```
+
+不可达降级（unreachable=disable）的高信号告警由资产双通道发出（observ 动态读 + 直写 stderr）——cfg 角色的降级发生在引导窗口（wireSource 早于日志装配），单靠 observ 会被 Noop 吞掉。
 
 nacos 节为启动期配置：不实现 `ApplyConfig`，变更仅下次启动生效（配置中心自身的连接参数无法热切换）。
 

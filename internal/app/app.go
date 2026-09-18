@@ -43,7 +43,7 @@ func Run(configPath, env, logLevel string) error {
 		slog.String("app_env", effEnv),
 		slog.String("app_version", Version))
 
-	if err := wire(t, r); err != nil {
+	if err := wire(t, r, meta); err != nil {
 		return err
 	}
 	return r.Run()

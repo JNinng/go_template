@@ -18,8 +18,9 @@ func wireSource(t *config.Tree) error {
 
 // wire 是组件接线触点：逐组件 解码配置节 → 构造 → 注册生命周期 →
 // （可选）Watch 热更。模板内为空实现，填入不算修改；组件间依赖以
-// 显式传参表达。远程源的接入不在此时序——见 wireSource（先于日志装配）。
-func wire(t *config.Tree, r *runner) error {
+// 显式传参表达，meta 供需要元数据的组件使用（如注册组件的 service
+// name 传 meta.Name）。远程源的接入不在此时序——见 wireSource（先于日志装配）。
+func wire(t *config.Tree, r *runner, meta Meta) error {
 	return nil
 }
 
