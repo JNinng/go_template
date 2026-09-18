@@ -38,7 +38,7 @@ func WithLogger(l observ.Logger) Option {
 type Greeter struct {
 	mu     sync.Mutex    // 保护 cfg
 	cfg    Config        // 当前生效配置
-	logger observ.Logger // 日志面（构造于 wire，晚于后端设置，快照即正确后端）
+	logger observ.Logger // 日志面（构造于装配点，晚于后端设置，快照即正确后端）
 	stop   chan struct{} // 幂等关闸
 	done   chan struct{} // loop 回收信号
 }

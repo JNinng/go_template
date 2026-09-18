@@ -8,8 +8,8 @@
 // 共享连接。nacos 节为启动期配置：不实现 ApplyConfig，变更仅下次启动生效。
 // 引导自身所需配置（连接参数）只能来自本地层——读它时远程尚未连通。
 //
-// 第三方依赖：github.com/nacos-group/nacos-sdk-go/v2（删除本组件目录并
-// go mod tidy 后即从 go.mod 清除）。
+// 第三方依赖：github.com/nacos-group/nacos-sdk-go/v2 + github.com/jninng/observ
+// （删除本组件目录并 go mod tidy 后即从 go.mod 清除）。
 package nacos
 
 import (
@@ -57,7 +57,7 @@ type Config struct {
 	Registrar ServiceRegistry `yaml:"registrar"` // 服务注册子节
 }
 
-// Default 返回 nacos 节默认值基座（初始解码与重解码共用；本资产不热更，
+// Default 返回 nacos 节默认值基座（初始解码与重解码共用；本组件不热更，
 // 仅初始解码）。配置中心缺省启用 + fail；注册缺省禁用（启用需实例端口）。
 func Default() Config {
 	return Config{
@@ -81,7 +81,7 @@ func Default() Config {
 type Option func(*options)
 
 // WithLogger 显式注入日志面（保留给测试捕获）。缺省不注入——调用点
-// 动态读 observ.DefaultLogger()：本资产可能在 wireSource 构造（早于
+// 动态读 observ.DefaultLogger()：本组件可能在 setupSources 构造（早于
 // 日志装配），构造期快照会把告警永久固定在 Noop。
 func WithLogger(l observ.Logger) Option {
 	return func(o *options) { o.logger = l }
@@ -119,7 +119,7 @@ func (o options) current() observ.Logger {
 }
 
 // logPolicyWarn 记不可达策略降级告警：observ 动态读 + 直写 stderr 双通道。
-// 降级事件发生在引导窗口（wireSource 早于日志装配）时 observ 可能仍是
+// 降级事件发生在引导窗口（setupSources 早于日志装配）时 observ 可能仍是
 // Noop，stderr 保证高信号运维事实永不丢失；日志就绪后最多重复一行，可接受。
 func (o options) logPolicyWarn(msg string, attrs ...slog.Attr) {
 	o.current().Log(slog.LevelWarn, msg, attrs...)

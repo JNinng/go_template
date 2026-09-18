@@ -164,7 +164,7 @@ func TestAddComponent_NewError(t *testing.T) {
 	}
 }
 
-func TestWireSource_DefaultEmpty(t *testing.T) {
+func TestSetupSources_DefaultEmpty(t *testing.T) {
 	tr, _ := newUseTree(t, "other:\n  a: 1\n")
 	if err := setupSources(tr); err != nil {
 		t.Fatalf("模板内空实现必须返回 nil，got %v", err)
