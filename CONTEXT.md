@@ -28,6 +28,10 @@ _Avoid_: 日志后端
 源接线（`wireSource`，先于日志装配）与组件接线（`wire`）双触点，位于 `internal/app/wire.go`，模板内均为空实现。
 _Avoid_: 注册表、容器（均不存在）、vendor 内置包（集成型资产也是组件，走资产 module，无内置类别）
 
+**业务装配入口（biz）**：
+业务组件接线的定位点（`internal/app/biz.go` 的 `setupBiz`，`wire` 只做转发）；业务逻辑与模板机制在此分家。
+_Avoid_: 到 `Run` 时序里找业务挂载点
+
 **运行器（runner）**：
 顺序启动、逆序停止、信号、停机预算（`internal/app/runner.go`）。
 _Avoid_: 容器（不做依赖校验、配置分发、启用开关）

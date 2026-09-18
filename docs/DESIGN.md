@@ -33,7 +33,7 @@
 ## 2. 验收标准
 
 1. **落地 5 步**：复制 → 改 module 名 → build → run → Ctrl+C 优雅退出（退出码 0）
-2. **引入组件触点**：`go get` + 装配触点一行（`app.Use`，或等价手写展开）+ 配置节粘贴（无配置组件省略）；**不修改模板任何既有文件**（`wireSource` 与 `wire` 为预留空实现，填入不算修改）
+2. **引入组件触点**：`go get` + 装配触点一行（远程源 → `wireSource`；业务组件 → 业务入口 `biz.go` 的 `app.Use`，或等价手写展开）+ 配置节粘贴（无配置组件省略）；**不修改模板任何既有文件**（`wireSource` / `wire` / `setupBiz` 为预留空实现，填入不算修改）
 3. **依赖白名单**：模板 go.mod 第三方依赖 = cobra、gopkg.in/yaml.v3、fsnotify、observ，四件封顶
 4. **热更可演示**：修改 `log.level` 保存即生效（无需重启）；引入示例组件（附录 A）后其配置节热更同样可演示
 5. **无组件基线**：模板原样运行 = 打印启动行 → 静默等待信号 → 预算内干净退出
@@ -56,8 +56,9 @@ main.go（3 行：internal/cmd.Execute()）
                             等非热更字段方能由远程治理）；引导自配只来自本地层（§8.2）
          3. setupLogging    设 observ 默认日志后端 + log 节 level 热更订阅
          4. meta            解析应用元数据（name / 生效 env / Version），打印启动行
-         5. wire(t, r, meta) 组件接线：逐组件 解码配置节 → 构造 → 注册生命周期 →（可选）Watch 热更
-                             （meta 供需要元数据的组件使用，如注册组件传 meta.Name）
+         5. wire(t, r, meta) 组件接线：转发至业务入口 setupBiz（biz.go）——业务组件在此
+                             解码配置节 → 构造 → 注册生命周期 →（可选）Watch 热更；
+                             meta 供需要元数据的组件使用（如注册组件传 meta.Name）
          6. r.Run()         信号 → root ctx → 顺序 Start → 阻塞等待 → 逆序 Stop（预算内）
 ```
 
@@ -83,6 +84,7 @@ main.go（3 行：internal/cmd.Execute()）
 │   │   ├── logging.go         # 日志装配：observ 默认后端 + level 热更（换 zap 的唯一改动点）
 │   │   ├── metadata.go        # app 节 Meta + Default() + var Version
 │   │   ├── runner.go          # 运行器（§10 给出全文）
+│   │   ├── biz.go             # 业务装配入口：业务组件接线（模板内为空实现，业务逻辑定位点）
 │   │   └── wire.go            # 装配触点：源接线 wireSource + 组件接线 wire（模板内均为空实现）
 │   ├── cmd/
 │   │   ├── root.go            # run（默认命令）+ --config / --env / --log-level
@@ -504,15 +506,15 @@ func (c *Component) Client() *someclient.Client     // 可选：类型化访问�
 
 ### 11.5 装配形态（模板侧）
 
-引入组件 = 装配点一行（装配辅助）或三行手写，二者等价；辅助是糖，不是唯一路径：
+业务组件的接线集中在**业务装配入口** `internal/app/biz.go`（`setupBiz`，模板内为空实现、`wire` 只做转发）——业务逻辑的定位点，业务代码与模板机制（Use / lifecycle / wireSource）由此分家。引入组件 = 装配点一行（装配辅助）或三行手写，二者等价；辅助是糖，不是唯一路径：
 
 ```go
-// internal/app/wire.go —— 组件接线触点（源接线见 wireSource，先于日志装配）
-func wire(t *config.Tree, r *runner, meta Meta) error {
+// internal/app/biz.go —— 业务装配入口（wire 只做转发，见上）
+func setupBiz(t *config.Tree, r *runner, meta Meta) error {
     // 辅助式：Default 与 New 在 Use 签名上成对出现，默认值只写一处。
     // newFn 形参是 func(Cfg) (C, error)：New 不带 option 的组件可直传；
     // 带约定的 opts ...Option 时传闭包（greeter 带 WithLogger，故用闭包）：
-    g, err := app.Use(t, r, "greeter", greeter.Default(),
+    g, err := Use(t, r, "greeter", greeter.Default(),
         func(c greeter.Config) (*greeter.Greeter, error) { return greeter.New(c) })
     if err != nil {
         return err

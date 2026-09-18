@@ -16,12 +16,11 @@ func wireSource(t *config.Tree) error {
 	return nil
 }
 
-// wire 是组件接线触点：逐组件 解码配置节 → 构造 → 注册生命周期 →
-// （可选）Watch 热更。模板内为空实现，填入不算修改；组件间依赖以
-// 显式传参表达，meta 供需要元数据的组件使用（如注册组件的 service
-// name 传 meta.Name）。远程源的接入不在此时序——见 wireSource（先于日志装配）。
+// wire 是组件接线触点：只做转发——业务组件的装配经业务入口
+// setupBiz（biz.go）发起，业务逻辑的定位点在彼处；模板机制
+//（Use / lifecycle / applier）住在本文件，与业务代码分离。
 func wire(t *config.Tree, r *runner, meta Meta) error {
-	return nil
+	return setupBiz(t, r, meta)
 }
 
 // lifecycle 是 Use 识别组件生命周期的结构化接口（组件零 import 即被识别）。
