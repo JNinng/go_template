@@ -164,10 +164,12 @@ func TestAddComponent_NewError(t *testing.T) {
 	}
 }
 
-func TestWireSource_DefaultEmpty(t *testing.T) {
-	tr, _ := newUseTree(t, "other:\n  a: 1\n")
+func TestSetupSources_DisabledConfig(t *testing.T) {
+	// 本分支 setupSources 已是真实 nacos 接线——用禁用态配置离线验证
+	// （enabled=false → 空快照解锁 Attach，不触网络）
+	tr, _ := newUseTree(t, "nacos:\n  config:\n    enabled: false\n")
 	if err := setupSources(tr); err != nil {
-		t.Fatalf("模板内空实现必须返回 nil，got %v", err)
+		t.Fatalf("disabled config must construct and attach offline, got %v", err)
 	}
 }
 

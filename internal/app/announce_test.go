@@ -40,8 +40,9 @@ func TestSetupBiz_WiresPlaceholder(t *testing.T) {
 	if err := setupBiz(tr, r, Meta{Name: "demo"}); err != nil {
 		t.Fatal(err)
 	}
-	if names := r.Names(); len(names) != 1 || names[0] != "biz" {
-		t.Fatalf("placeholder not registered: %v", names)
+	// 占位业务 + greeter 演示组件 + nacos 注册（本分支真实接线）
+	if names := r.Names(); len(names) != 3 || names[0] != "biz" || names[1] != "greeter" || names[2] != "nacos-reg" {
+		t.Fatalf("components not registered as expected: %v", names)
 	}
 	// 占位组件起停回路（Start 记日志到 Noop，不产生输出）
 	if err := r.StartAll(context.Background()); err != nil {
@@ -58,8 +59,9 @@ func TestSetupBiz_MissingSectionUsesDefaults(t *testing.T) {
 	if err := setupBiz(tr, r, Meta{Name: "demo"}); err != nil {
 		t.Fatalf("missing biz section must fall back to defaults, got %v", err)
 	}
-	if len(r.Names()) != 1 {
-		t.Fatalf("placeholder must register: %v", r.Names())
+	// 缺节回退：三个组件都以默认值/旁路形态注册（reg 缺省 disabled，离线可构造）
+	if names := r.Names(); len(names) != 3 {
+		t.Fatalf("components must register with defaults: %v", names)
 	}
 }
 
@@ -75,7 +77,7 @@ func TestRun_MultiComponentOrder(t *testing.T) {
 	if err := setupBiz(tr, r, meta); err != nil {
 		t.Fatal(err)
 	}
-	if names := r.Names(); len(names) != 2 || names[0] != "announce" || names[1] != "biz" {
+	if names := r.Names(); len(names) != 4 || names[0] != "announce" || names[1] != "biz" || names[2] != "greeter" || names[3] != "nacos-reg" {
 		t.Fatalf("registration order wrong: %v", names)
 	}
 	if err := r.StartAll(context.Background()); err != nil {

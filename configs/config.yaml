@@ -6,3 +6,21 @@ log:
   output: stdout
 biz:
   message: hello from biz
+greeter:
+  message: hello-local
+  interval_seconds: 2
+nacos:
+  config:
+    enabled: true
+    addr: 127.0.0.1:8848
+    username: nacos
+    password: nacos
+    data_id: demo.yaml
+    group: DEFAULT_GROUP
+    unreachable: fail
+  registrar:
+    enabled: true
+    addr: 127.0.0.1:8848
+    username: nacos
+    password: nacos
+    service_ip: 127.0.0.1

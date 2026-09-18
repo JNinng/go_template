@@ -8,7 +8,10 @@ package app
 import (
 	"go_template/internal/biz"
 	"go_template/internal/config"
+	"go_template/internal/components/greeter"
 	"go_template/internal/runner"
+
+	"github.com/jninng/nacos"
 )
 
 // setupBiz 装配全部业务组件；任一组件读配置或构造失败 → 引导失败（退出码 1）。
@@ -20,20 +23,24 @@ func setupBiz(t *config.Tree, r *runner.Runner, meta Meta) error {
 		return err
 	}
 
-	// 追加更多业务组件照此写。前一个组件的返回值可以直接传给下一个
-	// 组件的构造参数，依赖方向即书写顺序：
-	//
-	// redis, err := AddComponent(t, r, "redis", redis.Default(), redis.New)
-	// if err != nil {
-	// 	return err
-	// }
-	// cache, err := AddComponent(t, r, "cache", cache.Default(),
-	// 	func(c cache.Config) (*cache.Cache, error) {
-	// 		return cache.New(c, cache.WithRedis(redis.Client()))
-	// 	})
-	// if err != nil {
-	// 	return err
-	// }
-	_ = meta // 需要应用元数据的组件（如注册组件的 service name）从这里取
+	// greeter 演示组件：实现 ApplyConfig，配置节热更即时生效
+	//（nacos demo.yaml 下发的 greeter 节覆盖本地，tick 内容随远程变）
+	if _, err := AddComponent(t, r, "greeter", greeter.Default(),
+		func(c greeter.Config) (*greeter.Greeter, error) { return greeter.New(c) }); err != nil {
+		return err
+	}
+
+	// nacos 注册：标准生命周期组件，实例标识由装配点传参
+	//（serviceName 传 meta.Name——远程下发的 app.name 即注册名）。
+	// 不走配置节 + def 的组件用原语 r.Add 直接登记。
+	cfg, err := config.Decode(t, "nacos", nacos.Default())
+	if err != nil {
+		return err
+	}
+	reg, err := nacos.NewReg(cfg, meta.Name, 8080)
+	if err != nil {
+		return err
+	}
+	r.Add("nacos-reg", reg.Start, reg.Stop)
 	return nil
 }
