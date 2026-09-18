@@ -10,7 +10,12 @@ _Avoid_: 框架（不可被 import 依赖）
 
 **组件（组件资产）**：
 独立 Go module 形态的可复用能力单元，就是普通第三方库。
-_Avoid_: 插件（无运行时注册/发现机制）、模板内置包
+_Avoid_: 插件（无运行时注册/发现机制）
+
+**内置组件（内置组件库）**：
+与模板同 module 的轻量组件（`internal/components/`，仅依赖 stdlib + observ）；
+直接 import 试用，或拷出改造为项目自有组件。
+_Avoid_: vendor（Go 工具链保留目录名，包不可导入）、把重型集成放进内置库（依赖会进每个复制体的 go.mod）
 
 **原生组件**：
 遵循 [DESIGN.md](./docs/DESIGN.md) §11 约定编写的组件，原生适配配置节、observ 等能力。

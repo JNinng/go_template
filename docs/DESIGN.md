@@ -35,7 +35,7 @@
 1. **落地 5 步**：复制 → 改 module 名 → build → run → Ctrl+C 优雅退出（退出码 0）
 2. **引入组件触点**：`go get` + 装配入口一处（远程源 → `setupSources`；业务组件 → 业务入口 `biz.go` 的 `AddComponent`，或等价手写展开）+ 配置节粘贴（无配置组件省略）；**不修改模板任何既有文件**（`setupSources` 为预留空实现；`setupBiz` 内置占位业务 `biz.Hello`，替换该包即接入真实业务）
 3. **依赖白名单**：模板 go.mod 第三方依赖 = cobra、gopkg.in/yaml.v3、fsnotify、observ，四件封顶
-4. **热更可演示**：修改 `log.level` 保存即生效（无需重启）；引入示例组件（附录 A）后其配置节热更同样可演示
+4. **热更可演示**：修改 `log.level` 保存即生效（无需重启）；引入示例组件（internal/components/greeter）后其配置节热更同样可演示
 5. **占位基线**：模板原样运行 = announce 启动行 + 占位业务一行（`biz_started`）→ 静默等待信号 → 预算内干净退出；两组件同场演示多组件组合与启停顺序
 6. **fail-fast**：任一组件构造或启动失败 → 已启动者逆序停止 → 退出码 1
 7. **模板自带测试**：`go test ./...` 覆盖难点单测——config 包（合并分层、from_env 收集与类型推断、严格解码、Watch 收敛/合并/取消、多环境文件名推导）、runner（顺序启动/逆序停止、Start 失败回滚、停机预算）、logging（level 热更）、`AddComponent`（测试内 stub 组件）；信号触发路径仅 POSIX build-tag 测试。验收 5 步保持手动演示。
@@ -95,6 +95,8 @@ main.go（3 行：internal/cmd.Execute()）
 │   │   └── version.go         # version
 │   ├── biz/
 │   │   └── hello.go           # 占位业务组件（启动输出一句日志；项目替换为真实业务）
+│   ├── components/            # 内置组件库（轻量组件，准入规则见 §12 与库内 README）
+│   │   └── greeter/           # 约定完整示范样例（附录 A 指向此处）
 │   └── config/
 │       ├── config.go          # Load / Tree / Raw / Decode / Dump
 │       ├── source.go          # Source 接口 + 文件监听 + 合并管线
@@ -562,6 +564,8 @@ r.Add("biz", biz.Start, biz.Stop)
 
 ## 12. 资产库组织
 
+- **内置组件库**：`internal/components/<name>`，与模板同 module 的轻量组件，每个组件独立一个包。准入：仅依赖 stdlib + observ（observ 已是模板直依赖，零新增成本）——`go mod tidy` 收录的是主模块全部包的依赖，未使用的组件包带第三方依赖仍会进每个复制体的 go.mod，故重型集成不进内置库。用法与规则见 [internal/components/README.md](../internal/components/README.md)。
+
 - **资产** = 模板之外一切可复用 Go module：契约库（observ）、原生组件、适配组件。模板与资产共同构成"资产积累库"——模板是骨架，资产是积累。
 - **索引**：`ASSETS.md`（与本设计文档同目录），记录：名称 / module 路径 / 类型 / 配置节 / 热更能力 / 状态。
 - **准入**：满足 §11.6 README 必含项。
@@ -569,118 +573,13 @@ r.Add("biz", biz.Start, biz.Stop)
 - **命名**：不强制规范，以清单登记为准。
 - **失效处理**：弃用资产在清单标记状态并保留行（历史可查）。
 
-## 附录 A：示例组件 greeter（约定完整演示）
+## 附录 A：示例组件 greeter
 
-不随模板分发；全文拷贝即可作为一个合格原生组件的起点。
-
-```go
-// 包 greeter：周期打印问候语，演示全部组件约定。
-package greeter
-
-import (
-    "context"
-    "fmt"
-    "log/slog"
-    "sync"
-    "time"
-
-    "github.com/jninng/observ"
-)
-
-type Config struct {
-    Message        string `yaml:"message"`         // 问候内容，热更生效
-    IntervalSec    int    `yaml:"interval_seconds"` // 周期（秒），热更生效（下个周期起）
-}
-
-func Default() Config {
-    return Config{Message: "hello", IntervalSec: 10}
-}
-
-type Option func(*Greeter)
-
-func WithLogger(l observ.Logger) Option {
-    return func(g *Greeter) { g.logger = l }
-}
-
-type Greeter struct {
-    mu     sync.Mutex
-    cfg    Config
-    logger observ.Logger
-    stop   chan struct{}
-    done   chan struct{}
-}
-
-func New(cfg Config, opts ...Option) (*Greeter, error) {
-    if cfg.IntervalSec <= 0 {
-        return nil, fmt.Errorf("greeter: interval_seconds must be > 0, got %d", cfg.IntervalSec)
-    }
-    g := &Greeter{
-        cfg:    cfg,
-        logger: observ.DefaultLogger(), // 构造期快照
-        stop:   make(chan struct{}),
-        done:   make(chan struct{}),
-    }
-    for _, o := range opts {
-        o(g)
-    }
-    return g, nil
-}
-
-func (g *Greeter) Start(ctx context.Context) error {
-    go g.loop(ctx)
-    return nil
-}
-
-func (g *Greeter) loop(ctx context.Context) {
-    defer close(g.done)
-    for {
-        t := time.NewTicker(time.Duration(g.current().IntervalSec) * time.Second)
-        select {
-        case <-ctx.Done():
-            t.Stop()
-            return
-        case <-g.stop:
-            t.Stop()
-            return
-        case <-t.C:
-            c := g.current()
-            g.logger.Log(slog.LevelInfo, "greeter tick",
-                slog.String("message", c.Message))
-            t.Stop()
-        }
-    }
-}
-
-func (g *Greeter) Stop(ctx context.Context) error {
-    select { // 幂等关闸
-    case <-g.stop:
-    default:
-        close(g.stop)
-    }
-    select { // 等回收，尊重预算
-    case <-g.done:
-        return nil
-    case <-ctx.Done():
-        return ctx.Err()
-    }
-}
-
-func (g *Greeter) ApplyConfig(cfg Config) error {
-    if cfg.IntervalSec <= 0 {
-        return fmt.Errorf("greeter: reject non-positive interval_seconds")
-    }
-    g.mu.Lock()
-    defer g.mu.Unlock()
-    g.cfg = cfg
-    return nil
-}
-
-func (g *Greeter) current() Config {
-    g.mu.Lock()
-    defer g.mu.Unlock()
-    return g.cfg
-}
-```
+greeter（周期打印问候语）是组件约定的完整示范，源码即文档：
+`internal/components/greeter`——覆盖 Config / Default / New 构造校验 /
+Start / Stop（幂等）/ ApplyConfig 热更 / observ 注入（WithLogger）全套形态，
+并附测试。三种用法见 [internal/components/README.md](../internal/components/README.md)：
+直接 import 试用、拷出改造为项目自有组件、或仅作编写参考。
 
 配置节（粘贴进 `config.yaml`，或由 `config.Dump` 生成）：
 
@@ -690,7 +589,7 @@ greeter:
   interval_seconds: 10
 ```
 
-装配（见 §11.5）；README 字段表热更列：`message` 生效、`interval_seconds` 生效（下个周期起）。
+装配见 §11.5；README 字段表热更列：`message` 生效、`interval_seconds` 生效（下个周期起）。
 
 ## 附录 B：nacos 接入参考
 
