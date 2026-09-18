@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"go_template/internal/runner"
+
 	"github.com/jninng/observ"
 )
 
@@ -34,37 +36,37 @@ func TestAnnouncer_StartLogsServiceStarted(t *testing.T) {
 
 func TestSetupBiz_WiresPlaceholder(t *testing.T) {
 	tr, _ := newUseTree(t, "biz:\n  message: hi-biz\n")
-	r := new(runner)
+	r := runner.New()
 	if err := setupBiz(tr, r, Meta{Name: "demo"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(r.entries) != 1 || r.entries[0].name != "biz" {
-		t.Fatalf("placeholder not registered: %+v", r.entries)
+	if names := r.Names(); len(names) != 1 || names[0] != "biz" {
+		t.Fatalf("placeholder not registered: %v", names)
 	}
 	// 占位组件起停回路（Start 记日志到 Noop，不产生输出）
-	if _, err := r.startAll(context.Background()); err != nil {
+	if err := r.StartAll(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.shutdown(1); err != nil {
+	if err := r.StopAll(); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestSetupBiz_MissingSectionUsesDefaults(t *testing.T) {
 	tr, _ := newUseTree(t, "other:\n  a: 1\n")
-	r := new(runner)
+	r := runner.New()
 	if err := setupBiz(tr, r, Meta{Name: "demo"}); err != nil {
 		t.Fatalf("missing biz section must fall back to defaults, got %v", err)
 	}
-	if len(r.entries) != 1 {
-		t.Fatalf("placeholder must register: %+v", r.entries)
+	if len(r.Names()) != 1 {
+		t.Fatalf("placeholder must register: %v", r.Names())
 	}
 }
 
 func TestRun_MultiComponentOrder(t *testing.T) {
 	// 组合顺序契约：announce 首个启动；业务组件随后；逆序停止跳过 nil stop
 	tr, _ := newUseTree(t, "app:\n  name: demo\nbiz:\n  message: hi\n")
-	r := new(runner)
+	r := runner.New()
 	meta, eff, err := loadMeta(tr, "")
 	if err != nil {
 		t.Fatal(err)
@@ -73,13 +75,13 @@ func TestRun_MultiComponentOrder(t *testing.T) {
 	if err := setupBiz(tr, r, meta); err != nil {
 		t.Fatal(err)
 	}
-	if len(r.entries) != 2 || r.entries[0].name != "announce" || r.entries[1].name != "biz" {
-		t.Fatalf("registration order wrong: %+v", r.entries)
+	if names := r.Names(); len(names) != 2 || names[0] != "announce" || names[1] != "biz" {
+		t.Fatalf("registration order wrong: %v", names)
 	}
-	if _, err := r.startAll(context.Background()); err != nil {
+	if err := r.StartAll(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.shutdown(2); err != nil {
+	if err := r.StopAll(); err != nil {
 		t.Fatal(err)
 	}
 }

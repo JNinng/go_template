@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"go_template/internal/config"
+	"go_template/internal/runner"
 )
 
 // stubConfig 是符合组件约定的最小配置形态。
@@ -71,20 +72,20 @@ func newUseTree(t *testing.T, sectionContent string) (*config.Tree, string) {
 
 func TestAddComponent_DecodeConstructRegister(t *testing.T) {
 	tr, _ := newUseTree(t, "stub:\n  message: hi\n  interval_seconds: 3\n")
-	r := new(runner)
+	r := runner.New()
 
 	c, err := AddComponent(tr, r, "stub", stubDefault(),
 		func(c stubConfig) (*stubComp, error) { return newStub(c) })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.entries) != 1 || r.entries[0].name != "stub" {
-		t.Fatalf("lifecycle not registered: %+v", r.entries)
+	if names := r.Names(); len(names) != 1 || names[0] != "stub" {
+		t.Fatalf("lifecycle not registered: %v", names)
 	}
-	if _, err := r.startAll(context.Background()); err != nil {
+	if err := r.StartAll(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.shutdown(1); err != nil {
+	if err := r.StopAll(); err != nil {
 		t.Fatal(err)
 	}
 	c.mu.Lock()
@@ -96,7 +97,7 @@ func TestAddComponent_DecodeConstructRegister(t *testing.T) {
 
 func TestAddComponent_AutoSubscribesApplyConfig(t *testing.T) {
 	tr, _ := newUseTree(t, "stub:\n  message: hi\n  interval_seconds: 3\n")
-	r := new(runner)
+	r := runner.New()
 	c, err := AddComponent(tr, r, "stub", stubDefault(),
 		func(cfg stubConfig) (*stubComp, error) { return newStub(cfg) })
 	if err != nil {
@@ -145,7 +146,7 @@ func TestAddComponent_AutoSubscribesApplyConfig(t *testing.T) {
 
 func TestAddComponent_DecodeError(t *testing.T) {
 	tr, _ := newUseTree(t, "stub:\n  unknown_key: 1\n")
-	if _, err := AddComponent(tr, new(runner), "stub", stubDefault(),
+	if _, err := AddComponent(tr, runner.New(), "stub", stubDefault(),
 		func(stubConfig) (*stubComp, error) { return &stubComp{}, nil }); err == nil {
 		t.Fatal("unknown key must fail decode")
 	}
@@ -153,12 +154,12 @@ func TestAddComponent_DecodeError(t *testing.T) {
 
 func TestAddComponent_NewError(t *testing.T) {
 	tr, _ := newUseTree(t, "stub:\n  interval_seconds: 0\n")
-	r := new(runner)
+	r := runner.New()
 	if _, err := AddComponent(tr, r, "stub", stubDefault(),
 		func(cfg stubConfig) (*stubComp, error) { return newStub(cfg) }); err == nil {
 		t.Fatal("New failure must propagate")
 	}
-	if len(r.entries) != 0 {
+	if len(r.Names()) != 0 {
 		t.Fatal("failed construct must not register lifecycle")
 	}
 }

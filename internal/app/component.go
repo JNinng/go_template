@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"go_template/internal/config"
+	"go_template/internal/runner"
 )
 
 // AddComponent 装配一个业务组件，一行完成四件事：
@@ -12,9 +13,9 @@ import (
 // 组件无需 import 本模板：只要有 Start/Stop 方法即可（Go 结构化接口），
 // newFn 通常是一行闭包。配置节缺失时组件以 def 全默认值运行。
 //
-// 与 runner.Add 的关系：Add 只登记一对启停函数（原语）；
+// 与 runner 包的关系：Runner.Add 只登记一对启停函数（原语）；
 // AddComponent 多做了读配置和构造，业务装配一律用它。
-func AddComponent[Cfg any, C lifecycle](t *config.Tree, r *runner,
+func AddComponent[Cfg any, C lifecycle](t *config.Tree, r *runner.Runner,
 	section string, def Cfg, newFn func(Cfg) (C, error)) (C, error) {
 	cfg, err := config.Decode(t, section, def)
 	if err != nil {

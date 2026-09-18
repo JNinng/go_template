@@ -1,7 +1,11 @@
 // Package app 是装配层：启动时序、组件装配、优雅停机。
 package app
 
-import "go_template/internal/config"
+import (
+	"go_template/internal/config"
+
+	"go_template/internal/runner"
+)
 
 // Run 是模板唯一的启动时序。六步顺序即依赖顺序：
 // 配置 → 远程源 → 日志 → 元数据 → 业务组件 → 运行。
@@ -26,7 +30,7 @@ func Run(configPath, env, logLevel string) error {
 	}
 
 	// 3. 装配日志后端：读 log 节，设 observ 默认后端，订阅 level 热更。
-	r := new(runner)
+	r := runner.New()
 	if err := setupLogging(t, r); err != nil {
 		return err
 	}

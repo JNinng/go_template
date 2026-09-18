@@ -66,7 +66,8 @@ main.go（3 行：internal/cmd.Execute()）
 | 层 | 成员 | 职责 |
 |---|---|---|
 | 命令层 | `internal/cmd`（cobra） | 参数解析、子命令、进程退出码 |
-| 装配层 | `internal/app`（Run / runner / setupSources+setupBiz / metadata / logging） | 启动时序、源与组件装配、优雅停机 |
+| 装配层 | `internal/app`（Run / setupSources+setupBiz / metadata+announce / logging / AddComponent） | 启动时序、源与组件装配、优雅停机 |
+| 运行器 | `internal/runner`（Runner：Add / StartAll / StopAll / Run） | 生命周期机制：顺序启动、逆序停止、信号、预算 |
 | 配置层 | `internal/config` | 加载、合并、节读取、热更总线、Source 接口、Dump |
 | 组件层 | 外部资产（独立 module） | 一切业务与基础能力 |
 
@@ -83,12 +84,12 @@ main.go（3 行：internal/cmd.Execute()）
 │   ├── app/
 │   │   ├── app.go             # Run()：config → sources → logging → meta → biz → runner 时序
 │   │   ├── logging.go         # 日志装配：observ 默认后端 + level 热更（换 zap 的唯一改动点）
-│   │   ├── metadata.go        # app 节 Meta + Default() + var Version
-│   │   ├── runner.go          # 运行器（§10 给出全文）
-│   │   ├── announce.go        # announce 组件：启动行（首个启动者，与 biz 组件演示多组件组合）
+│   │   ├── metadata.go        # app 节 Meta + Version + announce 启动行组件（首个启动者）
 │   │   ├── biz.go             # 业务装配入口：业务组件接线（内置占位业务 biz.Hello，业务逻辑定位点）
 │   │   ├── sources.go         # 远程源接入 setupSources（模板内为空实现）
 │   │   └── component.go       # AddComponent 装配辅助：解码 → 构造 → 注册 → 可选热更
+│   ├── runner/
+│   │   └── runner.go          # 运行器：顺序启动、逆序停止、信号、停机预算（§10）
 │   ├── cmd/
 │   │   ├── root.go            # run（默认命令）+ --config / --env / --log-level
 │   │   └── version.go         # version
@@ -334,11 +335,11 @@ observ.SetDefaultLogger(zaplog.New(z))   // 模板与组件全部换向（observ
 
 ## 10. 优雅停机
 
-运行器是模板唯一的生命周期机制，全文如下（规范级参考实现）：
+运行器是模板唯一的生命周期机制，位于独立机制包 `internal/runner`（装配层仅经 `runner.New()` 使用），参考实现：
 
 ```go
-// internal/app/runner.go
-package app
+// internal/runner/runner.go（package runner，机制独立于装配层）
+package runner
 
 import (
     "context"
@@ -348,6 +349,8 @@ import (
     "os/signal"
     "syscall"
     "time"
+
+    "github.com/jninng/observ"
 )
 
 const (
@@ -355,24 +358,58 @@ const (
     totalBudget = 10 * time.Second // 停机总预算
 )
 
+// entry 是一个已注册组件的启停对。
 type entry struct {
-    name  string                       // 组件名（装配点注册时给定，用于日志与错误归因）
-    start func(context.Context) error  // 启动钩子，nil 表示跳过
-    stop  func(context.Context) error  // 停止钩子（须幂等），nil 表示跳过
+    name  string                      // 组件名（装配时给定，用于日志与错误归因）
+    start func(context.Context) error // 启动钩子，nil 表示跳过
+    stop  func(context.Context) error // 停止钩子（须幂等），nil 表示跳过
 }
 
-// runner 按注册顺序启动、逆序停止所辖组件；信号与停机预算由其统一管理。
-type runner struct{ entries []entry } // entries：注册序即启动序，逆序即停止序
+// Runner 按注册顺序启动、逆序停止所辖组件；信号与停机预算由其统一管理。
+type Runner struct {
+    entries []entry // 注册序即启动序，逆序即停止序
+    started int     // 已成功启动的组件数（StopAll 的停止范围）
+}
+
+// New 创建空运行器。
+func New() *Runner { return &Runner{} }
 
 // Add 注册一对生命周期；start / stop 均可为 nil（nil 跳过）。
 // 注册顺序即启动顺序，逆序即停止顺序。
-func (r *runner) Add(name string, start, stop func(context.Context) error) {
+func (r *Runner) Add(name string, start, stop func(context.Context) error) {
     r.entries = append(r.entries, entry{name, start, stop})
 }
 
+// Names 返回已注册组件名（注册顺序）；诊断与测试用。
+func (r *Runner) Names() []string { ... }
+
+// StartAll 顺序启动全部组件；任一失败即逆序停止已启动者并返回错误
+// （fail-fast 点）。Run 的启动半程，供需要手动控制生命周期的场景。
+func (r *Runner) StartAll(ctx context.Context) error {
+    r.started = 0
+    for _, e := range r.entries {
+        if e.start != nil {
+            if err := e.start(ctx); err != nil {
+                _ = r.stopStarted()
+                r.started = 0 // 已回滚：后续 StopAll 不再重复执行
+                return fmt.Errorf("start %s: %w", e.name, err)
+            }
+        }
+        // nil-start 条目也计入停止范围：其资源在装配期已建立
+        r.started++
+    }
+    return nil
+}
+
+// StopAll 逆序停止已启动组件；预算耗尽即强杀（退出码 1）。
+func (r *Runner) StopAll() error {
+    err := r.stopStarted()
+    r.started = 0
+    return err
+}
+
 // Run 阻塞执行：安装信号处理 → 顺序启动 → 等待信号/取消 → 逆序停机。
-// 返回 nil 即优雅退出（退出码 0）；启动失败返回错误（退出码 1）。
-func (r *runner) Run() error {
+func (r *Runner) Run() error {
     sigCh := make(chan os.Signal, 2)
     signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
     defer signal.Stop(sigCh)
@@ -380,91 +417,24 @@ func (r *runner) Run() error {
     ctx, cancel := context.WithCancel(context.Background())
     defer cancel()
 
-    go func() { // 第一个信号 → 优雅停机；第二个信号 → 立即强杀（防 Stop 卡死拖住进程）
+    go func() { // 第一个信号 → 优雅停机；第二个信号 → 立即强杀
         <-sigCh
         cancel()
         <-sigCh
         os.Exit(1)
     }()
 
-    started, err := r.startAll(ctx)
-    if err != nil {
+    if err := r.StartAll(ctx); err != nil {
         return err
     }
 
     <-ctx.Done()
-    return r.shutdown(started)
+    return r.StopAll()
 }
 
-// startAll 顺序启动；任一失败即逆序停止已启动者并返回错误（fail-fast 点）。
-func (r *runner) startAll(ctx context.Context) (int, error) {
-    started := 0
-    for _, e := range r.entries {
-        if e.start == nil {
-            continue
-        }
-        if err := e.start(ctx); err != nil {
-            _ = r.shutdown(started)
-            return started, fmt.Errorf("start %s: %w", e.name, err)
-        }
-        started++
-    }
-    return started, nil
-}
-
-// shutdown 逆序停止前 n 个已启动组件：单步预算 stepTimeout、总预算 totalBudget。
-// Stop 错误仅记日志（技术故障 Error）不中断流程；预算耗尽即强杀（退出码 1）。
-func (r *runner) shutdown(n int) error {
-    deadline := time.Now().Add(totalBudget)
-    for i := n - 1; i >= 0; i-- {
-        e := r.entries[i]
-        if e.stop == nil {
-            continue
-        }
-        step := time.Now().Add(stepTimeout)
-        if step.After(deadline) {
-            step = deadline
-        }
-        stepCtx, cancel := context.WithDeadline(context.Background(), step)
-        err := e.stop(stepCtx)
-        cancel()
-        if err != nil {
-            logError("component_stop_failed", // Error + stack（logging.go）
-                slog.String("component_name", e.name), slog.Any("error", err))
-        }
-        if time.Now().After(deadline) && i > 0 {
-            logError("shutdown_budget_exhausted",
-                slog.Int("remaining_components", i))
-            os.Exit(1)
-        }
-    }
-    return nil
-}
-```
-
-契约要点：
-
-- **顺序**：注册顺序 = 启动顺序（依赖即书写顺序）；逆序 = 停止顺序。
-- **Start 语义**：起 goroutine 后立即返回；返回 nil 即"可用"。
-- **Start 无预算**：停机预算只承诺 Stop；Start 阻塞卡死以第二个信号强杀为唯一逃生门——有意接受的边界。
-- **Stop 语义**：必须幂等（可安全重入）；ctx 携带单步预算，超时由组件自行截断返回。
-- **预算**：单步 5s、总 10s，**常量写死**（需要不同预算 = 改代码，刻意不设配置面）。
-- **信号**：SIGINT / SIGTERM → cancel root ctx；第二个信号立即 `os.Exit(1)`；SIGQUIT 保留 Go 默认栈转储。
-- **无容器职责**：不做依赖校验、不做启用开关分发、不做配置分发——那些问题在装配点以显式代码解决。
-
-## 11. 组件约定
-
-约定是**文档契约**，不是运行时机制：没有接口注册、没有反射发现，装配点直接调用组件的普通函数。
-
-### 11.1 形态与两态
-
-- **原生组件**：按本约定编写，原生适配配置节、observ 等能力。
-- **适配组件**：对既有第三方库（如 go-redis）包一层薄壳，使之符合约定；壳可由业务自写，也可由资产作者发布为适配资产。
-- 组件是普通 Go module，可以放独立仓库（不同 git 组织亦可，见 §12）。约定只面向**想要紧密贴合模板的原生组件**；第三方库无需满足任何约定——它保持原样，贴合发生在适配层。组件的依赖自由：依赖什么由组件自定（物理上也无法依赖模板——复制型资产没有稳定 import 路径）；observ 是原生组件的推荐抽象面，不是门槛。
-- **集成型资产（配置中心、注册中心、缓存等基础设施工客户端）也是普通组件**：与业务组件同约定、同准入（§11.6）、同登记（§12），不存在"内置 vendor 包"之类的特殊类别——集成物的复杂逻辑与测试住在资产 module 内，修复经 `go get -u` 传播；若内置进模板，复制型消费会把适配器 bug 冻结在每个项目副本里（ADR-0001 拒绝复制型资产的同一理由）。
-
-### 11.2 生命周期签名
-
+// stopStarted 逆序停止前 started 个已组件（单步预算内执行，细节从略）：
+// Stop 错误仅记日志（component_stop_failed，Error + stack）不中断流程；
+// 预算耗尽记 shutdown_budget_exhausted 后 os.Exit(1)。
 ```go
 // 组件包的规范形态
 type Config struct{ /* 字段带 yaml tag */ }

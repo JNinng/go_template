@@ -1,6 +1,6 @@
 //go:build !windows
 
-package app
+package runner
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 
 // 信号触发路径仅 POSIX 测试（Windows 无法向自身可靠发送 SIGTERM）。
 func TestRun_SignalTriggersGracefulShutdown(t *testing.T) {
-	r := new(runner)
+	r := New()
 	var mu sync.Mutex
 	var events []string
 	rec := func(e string) func(context.Context) error {

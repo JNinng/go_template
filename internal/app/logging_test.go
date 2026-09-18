@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"go_template/internal/config"
+	"go_template/internal/runner"
 
 	"github.com/jninng/observ"
 )
@@ -54,7 +55,7 @@ func TestSetupLogging_SetsBackend(t *testing.T) {
 	defer restore()
 
 	tr := newLogTree(t, "info")
-	r := new(runner)
+	r := runner.New()
 	if err := setupLogging(tr, r); err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +73,7 @@ func TestSetupLogging_InvalidLevelFailsFast(t *testing.T) {
 	defer restore()
 
 	tr := newLogTree(t, "bogus")
-	if err := setupLogging(tr, new(runner)); err == nil {
+	if err := setupLogging(tr, runner.New()); err == nil {
 		t.Fatal("invalid level at startup must fail-fast")
 	}
 }
@@ -82,7 +83,7 @@ func TestSetupLogging_LevelHotReload(t *testing.T) {
 	defer restore()
 
 	tr := newLogTree(t, "info")
-	if err := setupLogging(tr, new(runner)); err != nil {
+	if err := setupLogging(tr, runner.New()); err != nil {
 		t.Fatal(err)
 	}
 	if observ.DefaultLogger().Enabled(slog.LevelDebug) {
@@ -115,7 +116,7 @@ func TestSetupLogging_HotReloadInvalidLevelKeepsOld(t *testing.T) {
 	defer restore()
 
 	tr := newLogTree(t, "info")
-	if err := setupLogging(tr, new(runner)); err != nil {
+	if err := setupLogging(tr, runner.New()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -151,17 +152,18 @@ func TestSetupLogging_FileOutputRegistersCloseHook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := new(runner)
+	r := runner.New()
 	if err := setupLogging(tr, r); err != nil {
 		t.Fatal(err)
 	}
-	if len(r.entries) != 1 || r.entries[0].name != "log-close" {
-		t.Fatalf("log-close hook not registered: %+v", r.entries)
+	if names := r.Names(); len(names) != 1 || names[0] != "log-close" {
+		t.Fatalf("log-close hook not registered: %v", names)
 	}
-	if r.entries[0].start != nil {
-		t.Fatal("log-close should have no start")
+	// 全程起停：StopAll 执行关闭钩子后文件句柄释放（TempDir 清理可成功）
+	if err := r.StartAll(context.Background()); err != nil {
+		t.Fatal(err)
 	}
-	if err := r.shutdown(1); err != nil {
+	if err := r.StopAll(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(logFile); err != nil {
