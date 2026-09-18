@@ -8,7 +8,7 @@
 | observ | `github.com/jninng/observ` | 契约库 | — | — | 可用 | 零依赖 Logger/Meter 契约 + slog 桥 + Noop 回落 |
 | observ/adapters/zaplog | `github.com/jninng/observ/adapters/zaplog` | 适配器 | — | — | 可用 | zap 实现 observ.Logger |
 | observ/adapters/prom | `github.com/jninng/observ/adapters/prom` | 适配器 | — | — | 可用 | client_golang 实现 observ.Meter |
-| nacos | [`github.com/jninng/nacos`](https://github.com/JNinng/nacos) | 原生 | `nacos`（config/registrar 子节分立） | 启动期配置（不热更） | 已并入模板 | v0.1.0 起并入 `internal/components/nacos`（2026-09-19，本行留档）；接入见组件 README 与 DESIGN.md 附录 B |
+| nacos | [`github.com/jninng/nacos`](https://github.com/JNinng/nacos) | 原生 | `nacos`（config/registrar 子节分立） | 启动期配置（不热更） | 已并入模板 | v0.1.0 起并入模板内置组件库 `internal/components/nacos`；接入见组件 README 与 DESIGN.md 附录 B |
 
 ## 维护规则
 
