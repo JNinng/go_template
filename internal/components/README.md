@@ -20,5 +20,6 @@
 ## 与资产 module 的关系
 
 内置组件随模板整体分发、落地即项目自有，不存在跨项目 bugfix 传播问题；
-需要独立版本化维护、跨项目复用的组件（如 observ 契约库、nacos 客户端）
-发布为资产 module（见 [ASSETS.md](../../docs/ASSETS.md)），经 `go get` 引入。
+需要独立版本化维护、供模板之外项目复用的组件发布为资产 module
+（见 [ASSETS.md](../../docs/ASSETS.md)），经 `go get` 引入。
+组件的成长路径：内置（随模板）→ 使用面扩大后再抽为资产。

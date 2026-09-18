@@ -4,7 +4,7 @@
 
 ## 1. 定位与消费方式
 
-**是什么**：Go 长驻服务的项目模板，覆盖五项基础能力——命令、应用元数据、配置、日志、优雅停机。其余一切功能以**组件资产**（独立 Go module，见 §11/§12）按需引入，模板自身不捆绑任何组件。
+**是什么**：Go 长驻服务的项目模板，覆盖五项基础能力——命令、应用元数据、配置、日志、优雅停机。其余一切功能以**组件**形态按需引入：内置组件库（`internal/components`，随模板分发、删留自便）与组件资产（独立 Go module，见 §11/§12）两种载体。
 
 **目标业务形态**：HTTP API、gRPC、消息消费者、定时任务及其混合。一次性任务以兄弟子命令存在（§6），不使用热更与停机设施；纯 CLI 工具不是目标形态。
 
@@ -33,8 +33,8 @@
 ## 2. 验收标准
 
 1. **落地 5 步**：复制 → 改 module 名 → build → run → Ctrl+C 优雅退出（退出码 0）
-2. **引入组件触点**：`go get` + 装配入口一处（远程源 → `setupSources`；业务组件 → 业务入口 `biz.go` 的 `AddComponent`，或等价手写展开）+ 配置节粘贴（无配置组件省略）；**不修改模板任何既有文件**（`setupSources` 为预留空实现；`setupBiz` 内置占位业务 `biz.Hello`，替换该包即接入真实业务）
-3. **依赖随删随清**：模板自带组件的依赖随组件进入 go.mod；删除不需要的组件目录并 `go mod tidy` 后，go.mod 直接依赖即收敛为实际使用集（初始基线四件：cobra、gopkg.in/yaml.v3、fsnotify、observ）
+2. **引入组件触点**：内置组件直接在装配入口接线（无需 go get，见各组件 README）；组件资产 `go get` + 装配入口一处（远程源 → `setupSources`；业务组件 → 业务入口 `biz.go` 的 `AddComponent`，或等价手写展开）+ 配置节粘贴（无配置组件省略）；**不修改模板任何既有文件**（`setupSources` 为预留空实现；`setupBiz` 内置占位业务 `biz.Hello`，替换该包即接入真实业务）
+3. **依赖随删随清**：模板与内置组件的依赖随组件进入 go.mod；删除不需要的组件目录并 `go mod tidy` 后，go.mod 直接依赖即收敛为实际使用集（骨架基线四件：cobra、gopkg.in/yaml.v3、fsnotify、observ）
 4. **热更可演示**：修改 `log.level` 保存即生效（无需重启）；引入示例组件（internal/components/greeter）后其配置节热更同样可演示
 5. **占位基线**：模板原样运行 = announce 启动行 + 占位业务一行（`biz_started`）→ 静默等待信号 → 预算内干净退出；两组件同场演示多组件组合与启停顺序
 6. **fail-fast**：任一组件构造或启动失败 → 已启动者逆序停止 → 退出码 1
@@ -96,7 +96,8 @@ main.go（3 行：internal/cmd.Execute()）
 │   ├── biz/
 │   │   └── hello.go           # 占位业务组件（启动输出一句日志；项目替换为真实业务）
 │   ├── components/            # 内置组件库（组件菜单，依赖不设限；取舍规则见 §12 与库内 README）
-│   │   └── greeter/           # 约定完整示范样例（附录 A 指向此处）
+│   │   ├── greeter/           # 约定完整示范样例（附录 A 指向此处）
+│   │   └── nacos/             # nacos 双角色客户端（配置中心 Source + 服务注册）
 │   └── config/
 │       ├── config.go          # Load / Tree / Raw / Decode / Dump
 │       ├── source.go          # Source 接口 + 文件监听 + 合并管线
@@ -243,7 +244,7 @@ type Source interface {
 }
 ```
 
-- Source 由组件资产（如 nacos 客户端）构成，模板只认此接口；Source 的签名全部由朴素类型构成，**可由结构化类型满足**——资产零 import 模板、暴露同签名方法即可直传 `Attach`，无需适配胶水（接入示例见附录 B）。
+- Source 由组件构成（内置组件或资产，如 nacos 客户端），模板只认此接口；Source 的签名全部由朴素类型构成，**可由结构化类型满足**——资产零 import 模板、暴露同签名方法即可直传 `Attach`，无需适配胶水（接入示例见附录 B）。
 - 不可达策略（fail / disable）是组件资产的客户端选项，不是模板机制。
 - **装配纪律——先源后一切**：源接线（`setupSources`）先于日志装配与一切组件装配；配合 `Attach` 的首快照同步语义，日志初值与组件初值都总是完整的"本地 + 远程 + 静态层"合并结果，不存在"后附源靠热更收敛"的时序歧义（非热更字段如 `log.format` 也因此可由远程治理）。
 
@@ -263,7 +264,7 @@ type Source interface {
 **持有规则**：
 
 - **模板包**：不持有 logger 字段，调用点动态读 `observ.DefaultLogger()`（atomic 读，无锁；模板无高频路径，读取代价可忽略）。原因：config 包的构造早于日志装配（`log:` 节在配置里，先有配置后有后端），构造期快照会永久固定在 Noop；动态读同时保证换后端对已构造的模板设施立即生效。
-- **组件资产**：不做统一要求。原生组件推荐按 observ 规范——`WithLogger(observ.Logger)` option 显式注入（测试捕获用），未注入时构造期快照 `observ.DefaultLogger()`，组件构造发生在装配点、晚于后端设置，快照即正确后端。**源角色组件例外**：在 `setupSources` 构造（早于日志装配），快照会永久固定在 Noop——此类组件须动态读 `observ.DefaultLogger()`（低频路径，代价可忽略），不可达降级类高信号告警宜双通道（observ + 直写 stderr）保底（nacos 资产即此形态）。第三方组件按其自身日志面经适配层桥接（见下表）。
+- **组件资产**：不做统一要求。原生组件推荐按 observ 规范——`WithLogger(observ.Logger)` option 显式注入（测试捕获用），未注入时构造期快照 `observ.DefaultLogger()`，组件构造发生在装配点、晚于后端设置，快照即正确后端。**源角色组件例外**：在 `setupSources` 构造（早于日志装配），快照会永久固定在 Noop——此类组件须动态读 `observ.DefaultLogger()`（低频路径，代价可忽略），不可达降级类高信号告警宜双通道（observ + 直写 stderr）保底（nacos 组件即此形态）。第三方组件按其自身日志面经适配层桥接（见下表）。
 
 **装配点**（`internal/app/logging.go`，换后端的唯一改动处）：
 
@@ -593,36 +594,19 @@ greeter:
 
 ## 附录 B：nacos 接入参考
 
-nacos 是原生组件资产的接入参考（单仓库单包、cfg/reg 两客户端；状态见 [ASSETS.md](./ASSETS.md)）：
+nacos 已内置：`internal/components/nacos`（cfg 配置中心 Source + reg 服务注册，
+组件 README 含复制即用的接入代码、配置节与字段表；历史形态见 ASSETS.md 资产行）。
 
-- `nacos/cfg`——配置中心客户端：连接、订阅 dataId、推送全量快照。自带 `unreachable: fail | disable` 客户端选项（fail = 启动报错；disable = 告警后以纯本地配置继续，热更停摆）。配置中心与服务中心地址、凭据**分立**（两个子节），两者常为不同集群、故障域独立。`nacos/cfg` 以 Source 兼容签名暴露（`Name` + `Start`，§8.5 结构化类型），装配侧零胶水直传 `Attach`。
-- `nacos/reg`——服务注册客户端：注册、心跳、注销，标准生命周期签名，`Stop` 即注销。启用时需要 service name / port（装配点传 `meta.Name`）。
+接入要点（详见组件 README）：
 
-装配触点参考（Source 接口见 §8.5；cfg 接源触点、reg 接组件触点）：
-
-```go
-// setupSources：源触点——先于日志装配（§4 时序），引导自配只来自本地层
-func setupSources(t *config.Tree) error { // 示意
-    cfg, err := config.Decode(t, "nacos", nacos.Default())
-    if err != nil {
-        return err
-    }
-    cc, err := nacos.NewCfgClient(cfg) // Start 兼容 Source 签名（§8.5 结构化类型）
-    if err != nil {
-        return err // unreachable=fail 在此报错
-    }
-    return t.Attach(cc) // 首快照同步：返回时树已含远程层，日志/组件初值完整
-}
-
-// setupBiz：业务装配——注册中心是普通组件，走标准生命周期
-//   reg, err := nacos.NewReg(cfg, meta.Name, 8080) // 实例标识传参：serviceName 传 meta.Name
-//   if err != nil { return err }
-//   r.Add("nacos-reg", reg.Start, reg.Stop)
-```
-
-不可达降级（unreachable=disable）的高信号告警由资产双通道发出（observ 动态读 + 直写 stderr）——cfg 角色的降级发生在引导窗口（setupSources 早于日志装配），单靠 observ 会被 Noop 吞掉。
-
-nacos 节为启动期配置：不实现 `ApplyConfig`，变更仅下次启动生效（配置中心自身的连接参数无法热切换）。
+- 源触点 `setupSources`：`config.Decode` → `NewCfgClient` → `t.Attach(cc)`——
+  cfg 以 Source 兼容签名直传（§8.5 结构化类型），零适配胶水
+- 组件触点 `setupBiz`：`NewReg(cfg, meta.Name, port)` → `r.Add("nacos-reg", ...)`——
+  实例标识传参，serviceName 传模板元数据
+- 引导自身所需配置（连接参数）只来自本地层；nacos 节为启动期配置，不热更
+- 不可达降级（unreachable=disable）的高信号告警由组件双通道发出
+  （observ 动态读 + 直写 stderr）——cfg 角色的降级发生在引导窗口
+  （setupSources 早于日志装配），单靠 observ 会被 Noop 吞掉
 
 ## 附录 C：文档纪律
 
