@@ -4,3 +4,5 @@ log:
   level: info
   format: text
   output: stdout
+biz:
+  message: hello from biz

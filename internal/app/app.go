@@ -1,14 +1,10 @@
 // Package app 是装配层：启动时序、组件接线、优雅停机。
-// 时序（docs/DESIGN.md §4）：config.Load → setupLogging → meta → wire → runner.Run。
+// 时序（docs/DESIGN.md §4）：config.Load → wireSource → setupLogging →
+// meta → wire（业务入口 biz.go）→ runner.Run（启动行由 announce 组件
+// 首个启动时输出）。
 package app
 
-import (
-	"log/slog"
-
-	"go_template/internal/config"
-
-	"github.com/jninng/observ"
-)
+import "go_template/internal/config"
 
 // Run 是模板唯一的启动时序。任一步失败即引导失败：错误上抛，
 // 由命令层直写 stderr、以退出码 1 终止（此时日志可能未就绪）。
@@ -37,11 +33,8 @@ func Run(configPath, env, logLevel string) error {
 	if err != nil {
 		return err
 	}
-	// 启动行：模板运行的最小可见信号（Info，关键流程节点）
-	observ.DefaultLogger().Log(slog.LevelInfo, "service_started",
-		slog.String("app_name", meta.Name),
-		slog.String("app_env", effEnv),
-		slog.String("app_version", Version))
+	// announce 首个注册 → 首个启动（逆序停止时其 Stop 为 nil，运行器跳过）
+	r.Add("announce", newAnnouncer(meta, effEnv).Start, nil)
 
 	if err := wire(t, r, meta); err != nil {
 		return err

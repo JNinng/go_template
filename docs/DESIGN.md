@@ -33,10 +33,10 @@
 ## 2. 验收标准
 
 1. **落地 5 步**：复制 → 改 module 名 → build → run → Ctrl+C 优雅退出（退出码 0）
-2. **引入组件触点**：`go get` + 装配触点一行（远程源 → `wireSource`；业务组件 → 业务入口 `biz.go` 的 `app.Use`，或等价手写展开）+ 配置节粘贴（无配置组件省略）；**不修改模板任何既有文件**（`wireSource` / `wire` / `setupBiz` 为预留空实现，填入不算修改）
+2. **引入组件触点**：`go get` + 装配触点一行（远程源 → `wireSource`；业务组件 → 业务入口 `biz.go` 的 `app.Use`，或等价手写展开）+ 配置节粘贴（无配置组件省略）；**不修改模板任何既有文件**（`wireSource` / `wire` 为预留空实现；`setupBiz` 内置占位业务 `biz.Hello`，替换该包即接入真实业务）
 3. **依赖白名单**：模板 go.mod 第三方依赖 = cobra、gopkg.in/yaml.v3、fsnotify、observ，四件封顶
 4. **热更可演示**：修改 `log.level` 保存即生效（无需重启）；引入示例组件（附录 A）后其配置节热更同样可演示
-5. **无组件基线**：模板原样运行 = 打印启动行 → 静默等待信号 → 预算内干净退出
+5. **占位基线**：模板原样运行 = announce 启动行 + 占位业务一行（`biz_started`）→ 静默等待信号 → 预算内干净退出；两组件同场演示多组件组合与启停顺序
 6. **fail-fast**：任一组件构造或启动失败 → 已启动者逆序停止 → 退出码 1
 7. **模板自带测试**：`go test ./...` 覆盖难点单测——config 包（合并分层、from_env 收集与类型推断、严格解码、Watch 收敛/合并/取消、多环境文件名推导）、runner（顺序启动/逆序停止、Start 失败回滚、停机预算）、logging（level 热更）、`app.Use`（测试内 stub 组件）；信号触发路径仅 POSIX build-tag 测试。验收 5 步保持手动演示。
 
@@ -55,7 +55,8 @@ main.go（3 行：internal/cmd.Execute()）
                             先于日志装配——log 节与元数据初值因此含远程层（format/output
                             等非热更字段方能由远程治理）；引导自配只来自本地层（§8.2）
          3. setupLogging    设 observ 默认日志后端 + log 节 level 热更订阅
-         4. meta            解析应用元数据（name / 生效 env / Version），打印启动行
+         4. meta            解析应用元数据（name / 生效 env / Version），注册 announce 启动行组件
+                             （首个启动者，§7）
          5. wire(t, r, meta) 组件接线：转发至业务入口 setupBiz（biz.go）——业务组件在此
                              解码配置节 → 构造 → 注册生命周期 →（可选）Watch 热更；
                              meta 供需要元数据的组件使用（如注册组件传 meta.Name）
@@ -84,17 +85,20 @@ main.go（3 行：internal/cmd.Execute()）
 │   │   ├── logging.go         # 日志装配：observ 默认后端 + level 热更（换 zap 的唯一改动点）
 │   │   ├── metadata.go        # app 节 Meta + Default() + var Version
 │   │   ├── runner.go          # 运行器（§10 给出全文）
-│   │   ├── biz.go             # 业务装配入口：业务组件接线（模板内为空实现，业务逻辑定位点）
+│   │   ├── announce.go        # announce 组件：启动行（首个启动者，与 biz 组件演示多组件组合）
+│   │   ├── biz.go             # 业务装配入口：业务组件接线（内置占位业务 biz.Hello，业务逻辑定位点）
 │   │   └── wire.go            # 装配触点：源接线 wireSource + 组件接线 wire（模板内均为空实现）
 │   ├── cmd/
 │   │   ├── root.go            # run（默认命令）+ --config / --env / --log-level
 │   │   └── version.go         # version
+│   ├── biz/
+│   │   └── hello.go           # 占位业务组件（启动输出一句日志；项目替换为真实业务）
 │   └── config/
 │       ├── config.go          # Load / Tree / Raw / Decode / Dump
 │       ├── source.go          # Source 接口 + 文件监听 + 合并管线
 │       ├── overlay.go         # from_env 收集与静态覆盖
 │       └── bus.go             # 节级订阅与串行分发
-├── configs/config.yaml        # 仅 app: 与 log: 两节
+├── configs/config.yaml        # app: / log: / biz: 三节
 ├── CONTEXT.md                 # 术语表（单一事实源）
 └── docs/                      # DESIGN.md / ASSETS.md / adr/
 ```
@@ -153,7 +157,7 @@ CLI 库为 cobra。命令集两个，刻意收敛：
   go build -ldflags "-X '<module>/internal/app.Version=v1.2.3'" ./cmd/app
   ```
   Version 不进配置文件。
-- **启动行**：`observ.DefaultLogger().Log(slog.LevelInfo, "service_started", slog.String("app_name", …), slog.String("app_env", …), slog.String("app_version", …))`（消息与字段 snake_case，见 §9 日志规范），模板运行的最小可见信号。
+- **启动行**：由 **announce 组件**承载（首个注册、首个启动，§4/§10）：`observ.DefaultLogger().Log(slog.LevelInfo, "service_started", slog.String("app_name", …), slog.String("app_env", …), slog.String("app_version", …))`（消息与字段 snake_case，见 §9 日志规范），模板运行的最小可见信号。
 - **消费方式**：元数据是纯数据。组件需要它时由装配点显式传参（如注册组件的 service name 传 `meta.Name`），不存在元数据广播机制。
 
 ## 8. 配置体系
@@ -506,7 +510,7 @@ func (c *Component) Client() *someclient.Client     // 可选：类型化访问�
 
 ### 11.5 装配形态（模板侧）
 
-业务组件的接线集中在**业务装配入口** `internal/app/biz.go`（`setupBiz`，模板内为空实现、`wire` 只做转发）——业务逻辑的定位点，业务代码与模板机制（Use / lifecycle / wireSource）由此分家。引入组件 = 装配点一行（装配辅助）或三行手写，二者等价；辅助是糖，不是唯一路径：
+业务组件的接线集中在**业务装配入口** `internal/app/biz.go`（`setupBiz`，`wire` 只做转发）——业务逻辑的定位点，业务代码与模板机制（Use / lifecycle / wireSource）由此分家。模板内置占位业务 `biz.Hello`（启动输出一句日志）演示完整接入链路，项目落地后替换 `internal/biz` 包即可。引入组件 = 装配点一行（装配辅助）或三行手写，二者等价；辅助是糖，不是唯一路径：
 
 ```go
 // internal/app/biz.go —— 业务装配入口（wire 只做转发，见上）
