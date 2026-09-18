@@ -26,6 +26,14 @@ Go 长驻服务的项目模板：命令、应用元数据、配置（两层文�
 
 完整契约（配置 API、组件约定、资产准入）见 [docs/DESIGN.md](docs/DESIGN.md)。
 
+## 组件资产
+
+模板与组件资产共同构成"资产积累库"：模板是骨架，资产是积累。清单与准入标准见 [docs/ASSETS.md](docs/ASSETS.md)。
+
+| 资产 | 说明 |
+|---|---|
+| [github.com/JNinng/nacos](https://github.com/JNinng/nacos) | nacos 双角色客户端：配置源（Source 兼容签名，直传 `Attach` 零胶水）+ 服务注册（标准生命周期）；接入示例见 [docs/DESIGN.md 附录 B](docs/DESIGN.md) |
+
 ## 文档
 
 - [docs/DESIGN.md](docs/DESIGN.md) — 设计全文，实现与组件编写的依据
