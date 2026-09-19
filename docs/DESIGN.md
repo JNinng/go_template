@@ -97,7 +97,8 @@ main.go（3 行：internal/cmd.Execute()）
 │   │   └── hello.go           # 占位业务组件（启动输出一句日志；项目替换为真实业务）
 │   ├── components/            # 内置组件库（组件菜单，依赖不设限；取舍规则见 §12 与库内 README）
 │   │   ├── greeter/           # 约定完整示范样例（附录 A 指向此处）
-│   │   └── nacos/             # nacos 双角色客户端（配置中心 Source + 服务注册）
+│   │   ├── nacos/             # nacos 双角色客户端（配置中心 Source + 服务注册）
+│   │   └── zapc/              # zap 日志组件（级别热更即时生效，其余变更重建实例）
 │   └── config/
 │       ├── config.go          # Load / Tree / Raw / Decode / Dump
 │       ├── source.go          # Source 接口 + 文件监听 + 合并管线

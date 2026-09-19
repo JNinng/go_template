@@ -30,7 +30,7 @@ Go 长驻服务的项目模板：命令、应用元数据、配置（两层文�
 
 模板与组件资产共同构成"资产积累库"：模板是骨架，资产是积累。清单与准入标准见 [docs/ASSETS.md](docs/ASSETS.md)。
 
-- **内置组件**（随模板分发，复制即用）：约定示范样例 greeter、nacos 双角色客户端（配置源 + 服务注册），取舍与接入见 [internal/components/README.md](internal/components/README.md)
+- **内置组件**（随模板分发，复制即用）：约定示范样例 greeter、nacos 双角色客户端（配置源 + 服务注册）、zapc 日志组件（热更日志器），取舍与接入见 [internal/components/README.md](internal/components/README.md)
 - **组件资产**（独立 Go module，`go get` 引入）：清单与准入标准见 [docs/ASSETS.md](docs/ASSETS.md)
 
 ## 文档
