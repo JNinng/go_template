@@ -48,8 +48,8 @@ func (z *Log) Start(_ context.Context) error {
 
 // Stop 刷盘并释放 sink 句柄；幂等，错误均吞（stderr Sync 在个别平台报
 // EINVAL 噪声，不视作停机失败）。
-func (z *Log) Stop(_ context.Context) error {
-	observ.DefaultLogger().Log(slog.LevelInfo, "zapc_stopping")
+func (z *Log) Stop(ctx context.Context) error {
+	observ.DefaultLogger().Log(ctx, slog.LevelInfo, "zapc_stopping")
 	_ = z.kit.Current().Sync()
 	z.kit.Close()
 	return nil

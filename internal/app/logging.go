@@ -65,7 +65,7 @@ func setupLogging(t *config.Tree, r *runner.Runner) error {
 		}
 		lvl.Set(next)
 		if c.Format != cfg.Format || c.Output != cfg.Output {
-			observ.DefaultLogger().Log(slog.LevelInfo, "log_config_restart_required",
+			observ.DefaultLogger().Log(context.Background(), slog.LevelInfo, "log_config_restart_required",
 				slog.String("format", c.Format), slog.String("output", c.Output))
 		}
 		return nil
@@ -76,7 +76,7 @@ func setupLogging(t *config.Tree, r *runner.Runner) error {
 // logError 记技术故障（Error）：自动附加堆栈，只在最底层打一次。
 func logError(msg string, attrs ...slog.Attr) {
 	attrs = append(attrs, slog.String("stack", string(debug.Stack())))
-	observ.DefaultLogger().Log(slog.LevelError, msg, attrs...)
+	observ.DefaultLogger().Log(context.Background(), slog.LevelError, msg, attrs...)
 }
 
 // parseLevel 把级别字符串解析为 slog.Level（严格四档 + slog 偏移语法）。

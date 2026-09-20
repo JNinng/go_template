@@ -60,10 +60,10 @@ func TestSetupLogging_SetsBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := observ.DefaultLogger()
-	if !l.Enabled(slog.LevelInfo) {
+	if !l.Enabled(context.Background(), slog.LevelInfo) {
 		t.Fatal("info should be enabled at level=info")
 	}
-	if l.Enabled(slog.LevelDebug) {
+	if l.Enabled(context.Background(), slog.LevelDebug) {
 		t.Fatal("debug should be disabled at level=info")
 	}
 }
@@ -86,7 +86,7 @@ func TestSetupLogging_LevelHotReload(t *testing.T) {
 	if err := setupLogging(tr, runner.New()); err != nil {
 		t.Fatal(err)
 	}
-	if observ.DefaultLogger().Enabled(slog.LevelDebug) {
+	if observ.DefaultLogger().Enabled(context.Background(), slog.LevelDebug) {
 		t.Fatal("precondition: debug disabled")
 	}
 
@@ -103,7 +103,7 @@ func TestSetupLogging_LevelHotReload(t *testing.T) {
 	}
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if observ.DefaultLogger().Enabled(slog.LevelDebug) {
+		if observ.DefaultLogger().Enabled(context.Background(), slog.LevelDebug) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -132,7 +132,7 @@ func TestSetupLogging_HotReloadInvalidLevelKeepsOld(t *testing.T) {
 	}
 	time.Sleep(300 * time.Millisecond) // 等投递
 	l := observ.DefaultLogger()
-	if !l.Enabled(slog.LevelInfo) || l.Enabled(slog.LevelDebug) {
+	if !l.Enabled(context.Background(), slog.LevelInfo) || l.Enabled(context.Background(), slog.LevelDebug) {
 		t.Fatal("invalid hot-reload level must keep previous level")
 	}
 }

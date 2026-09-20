@@ -51,13 +51,13 @@ func New(cfg Config, opts ...Option) (*Hello, error) {
 // Start 输出占位日志后立即返回（无后台 goroutine，直接可用）；
 // ctx 取消是停机信号之一。
 func (h *Hello) Start(ctx context.Context) error {
-	h.logger.Log(slog.LevelInfo, "biz_started",
+	h.logger.Log(ctx, slog.LevelInfo, "biz_started",
 		slog.String("message", h.cfg.Message))
 	return nil
 }
 
 // Stop 幂等无资源（占位组件无 goroutine、无连接）。
 func (h *Hello) Stop(ctx context.Context) error {
-	h.logger.Log(slog.LevelInfo, "biz_stopped")
+	h.logger.Log(ctx, slog.LevelInfo, "biz_stopped")
 	return nil
 }

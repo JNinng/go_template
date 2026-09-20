@@ -122,11 +122,11 @@ func (r *Runner) stopStarted() error {
 		err := e.stop(stepCtx)
 		cancel()
 		if err != nil {
-			logError("component_stop_failed",
+			logError(stepCtx, "component_stop_failed",
 				slog.String("component_name", e.name), slog.Any("error", err))
 		}
 		if time.Now().After(deadline) && i > 0 {
-			logError("shutdown_budget_exhausted",
+			logError(stepCtx, "shutdown_budget_exhausted",
 				slog.Int("remaining_components", i))
 			os.Exit(1)
 		}
@@ -135,7 +135,7 @@ func (r *Runner) stopStarted() error {
 }
 
 // logError 记技术故障（Error）：自动附加堆栈，只在最底层打一次。
-func logError(msg string, attrs ...slog.Attr) {
+func logError(ctx context.Context, msg string, attrs ...slog.Attr) {
 	attrs = append(attrs, slog.String("stack", string(debug.Stack())))
-	observ.DefaultLogger().Log(slog.LevelError, msg, attrs...)
+	observ.DefaultLogger().Log(ctx, slog.LevelError, msg, attrs...)
 }

@@ -174,13 +174,14 @@ func readFileLayer(path string) (map[string]any, error) {
 }
 
 // logWarn 记业务/校验类异常（Warn）：聚合监控即可，无需即时告警。
+// 基础设施路径（文件监听、热更投递）不在业务 span 内，ctx 恒 Background。
 func logWarn(msg string, attrs ...slog.Attr) {
 	// 动态读默认 logger：config 构造早于日志装配，快照会永久固定在 Noop
-	observ.DefaultLogger().Log(slog.LevelWarn, msg, attrs...)
+	observ.DefaultLogger().Log(context.Background(), slog.LevelWarn, msg, attrs...)
 }
 
 // logError 记技术故障（Error）：自动附加堆栈，且只在最底层打一次。
 func logError(msg string, attrs ...slog.Attr) {
 	attrs = append(attrs, slog.String("stack", string(debug.Stack())))
-	observ.DefaultLogger().Log(slog.LevelError, msg, attrs...)
+	observ.DefaultLogger().Log(context.Background(), slog.LevelError, msg, attrs...)
 }

@@ -61,7 +61,7 @@ func newAnnouncer(meta Meta, effEnv string) *announcer {
 
 // Start 输出启动行后立即返回；消息与字段 snake_case（§9 日志规范）。
 func (a *announcer) Start(ctx context.Context) error {
-	observ.DefaultLogger().Log(slog.LevelInfo, "service_started",
+	observ.DefaultLogger().Log(ctx, slog.LevelInfo, "service_started",
 		slog.String("app_name", a.appName),
 		slog.String("app_env", a.appEnv),
 		slog.String("app_version", a.version))

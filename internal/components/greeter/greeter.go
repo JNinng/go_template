@@ -83,7 +83,7 @@ func (g *Greeter) loop(ctx context.Context) {
 			return
 		case <-t.C:
 			c := g.current()
-			g.logger.Log(slog.LevelInfo, "greeter_tick",
+			g.logger.Log(ctx, slog.LevelInfo, "greeter_tick",
 				slog.String("message", c.Message))
 			t.Stop()
 		}
