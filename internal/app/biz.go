@@ -7,12 +7,20 @@ package app
 
 import (
 	"go_template/internal/biz"
+	"go_template/internal/components/zapc"
 	"go_template/internal/config"
 	"go_template/internal/runner"
 )
 
 // setupBiz 装配全部业务组件；任一组件读配置或构造失败 → 引导失败（退出码 1）。
 func setupBiz(t *config.Tree, r *runner.Runner, meta Meta) error {
+	// zapc 接管 observ 默认日志后端（模板自持的 log: 节被遮蔽，删掉本段
+	// 接线即回落 slog 链路）；配置非法或输出打不开 → 引导失败。
+	_, err := AddComponent(t, r, "zapc", zapc.Default(), zapc.New)
+	if err != nil {
+		return err
+	}
+
 	// 占位业务：读 biz 节构造 Hello，启动时输出一句日志。
 	// Hello 没有实现 ApplyConfig，所以改 biz 节不热更（重启生效）。
 	if _, err := AddComponent(t, r, "biz", biz.Default(),

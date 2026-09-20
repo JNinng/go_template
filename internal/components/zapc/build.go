@@ -2,9 +2,9 @@ package zapc
 
 import (
 	"fmt"
+	"go_template/pkg/constant"
 	"os"
 	"path/filepath"
-	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -45,16 +45,16 @@ func buildLogger(cfg Config, lvl zapcore.LevelEnabler) (*zap.Logger, func(), err
 		closers = append(closers, func() { _ = lj.Close() })
 	}
 	if cfg.LogToConsole {
-		cores = append(cores, zapcore.NewCore(newConsoleEncoder(), os.Stderr, lvl))
+		cores = append(cores, zapcore.NewCore(newConsoleEncoder(), zapcore.Lock(os.Stdout), lvl))
 	}
 	if len(cores) == 0 { // Validate 已挡，防御性兜底
 		return nil, nil, fmt.Errorf("zapc: no output destination")
 	}
-	return zap.New(zapcore.NewTee(cores...)), closeAll, nil
+	return zap.New(zapcore.NewTee(cores...), zap.AddCaller()), closeAll, nil
 }
 
 // encoderConfig 人类可读基准：大写级别。控制台加色，文件保持无色（避免
-// ANSI 转义污染落盘内容）。不启用 caller——kit 调用面扰动调用栈，行号无意义。
+// ANSI 转义污染落盘内容）。
 func encoderConfig(colored bool) zapcore.EncoderConfig {
 	enc := zapcore.EncoderConfig{
 		TimeKey:        "time",
@@ -62,10 +62,10 @@ func encoderConfig(colored bool) zapcore.EncoderConfig {
 		NameKey:        "logger",
 		CallerKey:      "caller",
 		MessageKey:     "msg",
-		StacktraceKey:  "stacktrace",
+		StacktraceKey:  "stack",
 		LineEnding:     zapcore.DefaultLineEnding,
-		EncodeTime:     zapcore.TimeEncoderOfLayout(time.RFC3339Nano),
-		EncodeDuration: zapcore.SecondsDurationEncoder,
+		EncodeTime:     zapcore.TimeEncoderOfLayout(constant.RFC3339Milli),
+		EncodeDuration: zapcore.MillisDurationEncoder,
 		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
 	if colored {

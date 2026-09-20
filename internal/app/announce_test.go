@@ -40,7 +40,7 @@ func TestSetupBiz_WiresPlaceholder(t *testing.T) {
 	if err := setupBiz(tr, r, Meta{Name: "demo"}); err != nil {
 		t.Fatal(err)
 	}
-	if names := r.Names(); len(names) != 1 || names[0] != "biz" {
+	if names := r.Names(); len(names) != 2 || names[0] != "zapc" || names[1] != "biz" {
 		t.Fatalf("placeholder not registered: %v", names)
 	}
 	// 占位组件起停回路（Start 记日志到 Noop，不产生输出）
@@ -58,7 +58,7 @@ func TestSetupBiz_MissingSectionUsesDefaults(t *testing.T) {
 	if err := setupBiz(tr, r, Meta{Name: "demo"}); err != nil {
 		t.Fatalf("missing biz section must fall back to defaults, got %v", err)
 	}
-	if len(r.Names()) != 1 {
+	if len(r.Names()) != 2 {
 		t.Fatalf("placeholder must register: %v", r.Names())
 	}
 }
@@ -75,7 +75,7 @@ func TestRun_MultiComponentOrder(t *testing.T) {
 	if err := setupBiz(tr, r, meta); err != nil {
 		t.Fatal(err)
 	}
-	if names := r.Names(); len(names) != 2 || names[0] != "announce" || names[1] != "biz" {
+	if names := r.Names(); len(names) != 3 || names[0] != "announce" || names[1] != "zapc" || names[2] != "biz" {
 		t.Fatalf("registration order wrong: %v", names)
 	}
 	if err := r.StartAll(context.Background()); err != nil {

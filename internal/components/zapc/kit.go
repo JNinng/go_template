@@ -14,7 +14,10 @@ import (
 // config 包，节的选择留在持有配置树的装配点。
 type Watcher func(apply func(Config) error) (cancel func())
 
-type options struct{ watch Watcher }
+type options struct {
+	watch  Watcher
+	onSwap func(*zap.Logger) // 实例换新回调（初始构建与每次热更重建都触发）
+}
 
 // Option 构造选项。
 type Option func(*options)
@@ -26,17 +29,29 @@ func WithWatch(w Watcher) Option {
 	return func(o *options) { o.watch = w }
 }
 
+// WithOnSwap 注入实例换新回调：初始构建与每次热更重建后以新实例调用一次
+// （锁外执行）。供外部绑定跟随实例的旁路设施——如把实例桥接为 observ
+// 默认日志器；不跟随热更的绑定会在重建后攥着已关闭的旧实例。回调收到
+// 原始实例（skip 0），调用面深度由回调方自行校准。
+func WithOnSwap(fn func(*zap.Logger)) Option {
+	return func(o *options) { o.onSwap = fn }
+}
+
 // kitState 是 kit 的可变状态：实例、级别、配置与句柄回收。堆上共享，
-// LoggerKit 以指针持有、保持值语义可拷贝。当前实例走原子指针——Current
-// 是日志热路径，读取不进锁；mu 只串行化热更换实例与 cfg / sinkClose 记账
-// （cur 与 cfg 必须成对更新，写侧同锁保证不出现交叉错配）。
+// LoggerKit 以指针持有、保持值语义可拷贝。实例走原子指针——Current 是
+// 日志热路径，读取不进锁；mu 只串行化热更换实例与 cfg / sinkClose 记账
+// （cur 与 cfg 必须成对更新，写侧同锁保证不出现交叉错配）。双实例分工：
+// cur 为原始实例（skip 0，供 zap.L() / Current 直调），curSkip1 跳过一层
+// 封装帧（kit 调用面专用，caller 定位到用户行）。
 type kitState struct {
 	mu          sync.Mutex
-	cur         atomic.Pointer[zap.Logger] // 当前实例（热路径原子读）
+	cur         atomic.Pointer[zap.Logger] // 原始实例（热路径原子读）
+	curSkip1    atomic.Pointer[zap.Logger] // 跳一层封装帧的实例（kit 调用面专用）
 	cfg         Config                     // 当前生效配置（收敛判断基准）
 	level       zap.AtomicLevel
-	sinkClose   func() // 当前 sink 句柄回收
-	watchCancel func() // WithWatch 注入的订阅取消（nil = 未注入）
+	sinkClose   func()            // 当前 sink 句柄回收
+	watchCancel func()            // WithWatch 注入的订阅取消（nil = 未注入）
+	onSwap      func(*zap.Logger) // WithOnSwap 注入的换新回调（nil = 未注入）
 }
 
 // LoggerKit 是日志构建产物与热更状态机的句柄：其他想自建 zap 日志的组件
@@ -66,8 +81,15 @@ func NewLogger(cfg Config, opts ...Option) (LoggerKit, error) {
 		return LoggerKit{}, err
 	}
 	st.cur.Store(logger)
+	st.curSkip1.Store(logger.WithOptions(zap.AddCallerSkip(1)))
 	st.sinkClose = sinkClose
+	st.onSwap = o.onSwap
 	k := LoggerKit{st: st}
+
+	// 换新回调先于订阅建立：绑定方拿到的实例与热更路径完全同源。
+	if o.onSwap != nil {
+		o.onSwap(logger)
+	}
 
 	// 订阅最后建立：取消函数并入 Close（先断订阅等在途回调，再关句柄）。
 	if o.watch != nil {
@@ -84,32 +106,39 @@ func (k LoggerKit) Current() *zap.Logger {
 	return k.st.cur.Load()
 }
 
+// CurrentSkip1 返回当前生效实例（原子读，热路径免锁）；热更换新后自动跟随。
+func (k LoggerKit) CurrentSkip1() *zap.Logger {
+	if k.st == nil {
+		return nil
+	}
+	return k.st.curSkip1.Load()
+}
+
 // Debug 记一条 Debug（经当前实例）。
 func (k LoggerKit) Debug(msg string, fields ...zap.Field) {
-	if l := k.Current(); l != nil {
+	if l := k.CurrentSkip1(); l != nil {
 		l.Debug(msg, fields...)
 	}
 }
 
 // Info 记一条 Info（经当前实例）。
 func (k LoggerKit) Info(msg string, fields ...zap.Field) {
-	if l := k.Current(); l != nil {
+	if l := k.CurrentSkip1(); l != nil {
 		l.Info(msg, fields...)
 	}
 }
 
 // Warn 记一条 Warn（经当前实例）。
 func (k LoggerKit) Warn(msg string, fields ...zap.Field) {
-	if l := k.Current(); l != nil {
+	if l := k.CurrentSkip1(); l != nil {
 		l.Warn(msg, fields...)
 	}
 }
 
 // Error 记一条 Error（经当前实例）。
 func (k LoggerKit) Error(msg string, fields ...zap.Field) {
-	if l := k.Current(); l != nil {
+	if l := k.CurrentSkip1(); l != nil {
 		// 三索引切片强制 append 走新数组，不改写调用方 fields 的底层数组；
-		// StackSkip(1) 跳过本封装帧，栈首帧即调用方代码行
 		l.Error(msg, append(fields[:len(fields):len(fields)], zap.StackSkip("stack", 1))...)
 	}
 }
@@ -117,7 +146,7 @@ func (k LoggerKit) Error(msg string, fields ...zap.Field) {
 // DPanic 记一条 DPanic（经当前实例）。本组件非 Development 构建——只记
 // 日志不 panic；需要"开发期 panic"语义时由调用方自行 Panic。
 func (k LoggerKit) DPanic(msg string, fields ...zap.Field) {
-	if l := k.Current(); l != nil {
+	if l := k.CurrentSkip1(); l != nil {
 		l.DPanic(msg, fields...)
 	}
 }
@@ -125,7 +154,7 @@ func (k LoggerKit) DPanic(msg string, fields ...zap.Field) {
 // Check 经当前实例的 Check：级别禁用时返回 nil（zap 原语义），调用方判空
 // 后经 ce.Write(fields) 落盘。
 func (k LoggerKit) Check(lvl zapcore.Level, msg string) *zapcore.CheckedEntry {
-	if l := k.Current(); l != nil {
+	if l := k.CurrentSkip1(); l != nil {
 		return l.Check(lvl, msg)
 	}
 	return nil
@@ -176,6 +205,7 @@ func (s *kitState) rebuild(c Config) error {
 	s.mu.Lock()
 	old, oldClose := s.cur.Load(), s.sinkClose
 	s.cur.Store(next)
+	s.curSkip1.Store(next.WithOptions(zap.AddCallerSkip(1)))
 	s.sinkClose = nextClose
 	s.level.SetLevel(p)
 	s.cfg = c
@@ -183,6 +213,9 @@ func (s *kitState) rebuild(c Config) error {
 	_ = old.Sync() // 尽力刷盘：旧实例可能仍有在途写入
 	oldClose()
 	zap.ReplaceGlobals(next)
+	if s.onSwap != nil {
+		s.onSwap(next)
+	}
 	return nil
 }
 

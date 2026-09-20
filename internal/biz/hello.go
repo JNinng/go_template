@@ -57,4 +57,7 @@ func (h *Hello) Start(ctx context.Context) error {
 }
 
 // Stop 幂等无资源（占位组件无 goroutine、无连接）。
-func (h *Hello) Stop(ctx context.Context) error { return nil }
+func (h *Hello) Stop(ctx context.Context) error {
+	h.logger.Log(slog.LevelInfo, "biz_stopped")
+	return nil
+}

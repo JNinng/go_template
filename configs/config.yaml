@@ -4,5 +4,7 @@ log:
   level: info
   format: text
   output: stdout
+zapc:
+  path: log/zapc.log
 biz:
   message: hello from biz
