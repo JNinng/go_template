@@ -6,5 +6,12 @@ log:
   output: stdout
 zapc:
   path: log/zapc.log
+otelc:
+  endpoint: "" # OTLP collector 地址 host:port；空 = 不导出（trace_id 照常生成）
+  protocol: grpc # grpc | http
+promc:
+  addr: ":9090"
+  metrics_path: /metrics
+  health_path: /health
 biz:
   message: hello from biz

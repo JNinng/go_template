@@ -42,6 +42,22 @@ func setupBiz(t *config.Tree, r *runner.Runner, meta Meta) error {
 	// if err != nil {
 	// 	return err
 	// }
+	//
+	// 内置可观测组件（详见各 README 与 DESIGN 附录 D）——otelc 接在日志
+	// 后端组件（如上面的 zapc）之后：
+	//
+	// tr, err := AddComponent(t, r, "otelc", otelc.Default(),
+	// 	func(c otelc.Config) (*otelc.Tracer, error) {
+	// 		return otelc.New(c, otelc.WithService(meta.Name, meta.Env)) // 资源标识从元数据传入
+	// 	})
+	// if err != nil {
+	// 	return err
+	// }
+	// pm, err := AddComponent(t, r, "promc", promc.Default(), promc.New)
+	// if err != nil {
+	// 	return err
+	// }
+	// _ = pm.Meter() // 经组件 option 注入业务（WithMeter）；跨组件健康检查用 pm.RegisterCheck
 	_ = meta // 需要应用元数据的组件（如注册组件的 service name）从这里取
 	return nil
 }
