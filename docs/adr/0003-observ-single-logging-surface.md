@@ -1,5 +1,7 @@
 # 日志单一调用面 observ
 
+> **修订**：本文所引 `Enabled(slog.Level) bool` / `Log(level, msg, attrs...)` 签名已被 ADR-0004 演进为携带 ctx 的对齐 slog 版本（observ v0.2.0）；单一调用面的决策本身不变。
+
 模板代码严格经 observ.Logger 记日志（`Enabled(slog.Level) bool` / `Log(level, msg string, attrs ...slog.Attr)`）。装配点设 observ 默认后端：缺省实现零配置可用（基于 stdlib 构建）；业务换 zap 时装配点一处换向——`observ.SetDefaultLogger(zaplog.New(z))`——业务自身代码直调 zap，不经 observ、不经任何中间层，高频路径零额外开销。组件不强制：原生组件推荐走 observ 约定，第三方组件按其日志面经适配层桥接。
 
 配套规则：

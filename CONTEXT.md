@@ -44,6 +44,20 @@ _Avoid_: 容器（不做依赖校验、配置分发、启用开关）
 **应用元数据**：
 `app:` 节（name/env）+ 构建期注入的 Version。
 
+## 可观测
+
+**链路追踪组件（otelc）**：
+内置组件库的 OTel 追踪组件（`internal/components/otelc`）：全局
+TracerProvider 装配 + OTLP 导出 + 日志链路注入（trace_id/span_id，
+经 observ 边界装饰）。
+_Avoid_: APM（指商业监控产品）、span 中间件（模板无 HTTP server）
+
+**指标与健康组件（promc）**：
+内置组件库的指标健康组件（`internal/components/promc`）：私有
+Prometheus registry + `/metrics` `/health` 端点 + `observ.Meter` 适配。
+_Avoid_: 监控面板（指 Grafana 类消费侧）、默认 registry（promc 用私有
+registry，不经 `prometheus.DefaultRegisterer` 的指标不暴露）
+
 ## 配置
 
 **配置节**：

@@ -38,7 +38,7 @@
 4. **热更可演示**：修改 `log.level` 保存即生效（无需重启）；引入示例组件（internal/components/greeter）后其配置节热更同样可演示
 5. **占位基线**：模板原样运行 = announce 启动行 + 占位业务一行（`biz_started`）→ 静默等待信号 → 预算内干净退出；两组件同场演示多组件组合与启停顺序
 6. **fail-fast**：任一组件构造或启动失败 → 已启动者逆序停止 → 退出码 1
-7. **模板自带测试**：`go test ./...` 覆盖难点单测——config 包（合并分层、from_env 收集与类型推断、严格解码、Watch 收敛/合并/取消、多环境文件名推导）、runner（顺序启动/逆序停止、Start 失败回滚、停机预算）、logging（level 热更）、`AddComponent`（测试内 stub 组件）；信号触发路径仅 POSIX build-tag 测试。验收 5 步保持手动演示。
+7. **模板自带测试**：`go test ./...` 覆盖难点单测——config 包（合并分层、from_env 收集与类型推断、严格解码、Watch 收敛/合并/取消、多环境文件名推导）、runner（顺序启动/逆序停止、Start 失败回滚、停机预算）、logging（level 热更）、`AddComponent`（测试内 stub 组件）、可观测组件（otelc 空 endpoint 模式与日志 trace 注入、promc 端点聚合与 Meter 闭环）；信号触发路径仅 POSIX build-tag 测试。验收 5 步保持手动演示。
 
 ## 3. 术语表
 
@@ -98,13 +98,15 @@ main.go（3 行：internal/cmd.Execute()）
 │   ├── components/            # 内置组件库（组件菜单，依赖不设限；取舍规则见 §12 与库内 README）
 │   │   ├── greeter/           # 约定完整示范样例（附录 A 指向此处）
 │   │   ├── nacos/             # nacos 双角色客户端（配置中心 Source + 服务注册）
-│   │   └── zapc/              # zap 日志组件（级别热更即时生效，其余变更重建实例）
+│   │   ├── zapc/              # zap 日志组件（级别热更即时生效，其余变更重建实例）
+│   │   ├── otelc/             # OTel 链路追踪组件（TracerProvider 装配 + 日志 trace 注入，附录 D）
+│   │   └── promc/             # 指标与健康检查组件（prom registry + observ.Meter 适配，附录 D）
 │   └── config/
 │       ├── config.go          # Load / Tree / Raw / Decode / Dump
 │       ├── source.go          # Source 接口 + 文件监听 + 合并管线
 │       ├── overlay.go         # from_env 收集与静态覆盖
 │       └── bus.go             # 节级订阅与串行分发
-├── configs/config.yaml        # app: / log: / biz: 三节
+├── configs/config.yaml        # app: / log: / biz: 与组件节示例（zapc、otelc、promc 等）
 ├── CONTEXT.md                 # 术语表（单一事实源）
 └── docs/                      # DESIGN.md / ASSETS.md / adr/
 ```
@@ -120,7 +122,7 @@ log:
   output: stdout
 ```
 
-- Go 版本要求：1.23+
+- Go 版本要求：1.25+
 - 模板 go.mod 第三方依赖白名单：`github.com/spf13/cobra`、`gopkg.in/yaml.v3`、`github.com/fsnotify/fsnotify`、`github.com/jninng/observ`
 
 ## 6. 命令体系
@@ -163,7 +165,7 @@ CLI 库为 cobra。命令集两个，刻意收敛：
   go build -ldflags "-X '<module>/internal/app.Version=v1.2.3'" ./cmd/app
   ```
   Version 不进配置文件。
-- **启动行**：由 **announce 组件**承载（首个注册、首个启动，§4/§10）：`observ.DefaultLogger().Log(slog.LevelInfo, "service_started", slog.String("app_name", …), slog.String("app_env", …), slog.String("app_version", …))`（消息与字段 snake_case，见 §9 日志规范），模板运行的最小可见信号。
+- **启动行**：由 **announce 组件**承载（首个注册、首个启动，§4/§10）：`observ.DefaultLogger().Log(ctx, slog.LevelInfo, "service_started", slog.String("app_name", …), slog.String("app_env", …), slog.String("app_version", …))`（消息与字段 snake_case，见 §9 日志规范），模板运行的最小可见信号。
 - **消费方式**：元数据是纯数据。组件需要它时由装配点显式传参（如注册组件的 service name 传 `meta.Name`），不存在元数据广播机制。
 
 ## 8. 配置体系
@@ -260,7 +262,7 @@ type Source interface {
 
 ## 9. 日志
 
-**单一调用面**：模板代码严格经 **observ.Logger**（`Enabled(slog.Level) bool` / `Log(level, msg string, attrs ...slog.Attr)`，级别与属性复用 slog 类型）。组件不强制：原生组件推荐同走 observ 约定（§11），第三方组件按其日志面经适配层桥接（见下表）。装配点设置 observ 默认后端：缺省实现零配置可用（基于 stdlib 构建）；业务换 zap 时在装配点一处换向，业务自身代码直调 zap——不经 observ、不经任何中间层，高频路径零额外开销。
+**单一调用面**：模板代码严格经 **observ.Logger**（`Enabled(ctx, slog.Level) bool` / `Log(ctx, level, msg string, attrs ...slog.Attr)`，级别与属性复用 slog 类型；observ v0.2.0 起两方法携带 ctx、签名与 slog.Logger 逐字对齐——链路上下文由此流到实现侧，见下文"链路关联"）。组件不强制：原生组件推荐同走 observ 约定（§11），第三方组件按其日志面经适配层桥接（见下表）。装配点设置 observ 默认后端：缺省实现零配置可用（基于 stdlib 构建）；业务换 zap 时在装配点一处换向，业务自身代码直调 zap——不经 observ、不经任何中间层，高频路径零额外开销。
 
 **持有规则**：
 
@@ -329,7 +331,9 @@ observ.SetDefaultLogger(zaplog.New(z))   // 模板与组件全部换向（observ
 
 业务代码直调 zap，不经任何桥接层；模板与组件经 zaplog 适配器直抵 zap，零改动（动态读与装配期换向都指向新后端）。level 热更由 zap 动态级别承接（如 `zapcore.NewAtomicLevel`）。
 
-**Meter**：模板不装配指标出口——组件经 observ.Meter 埋点时缺省 Noop、零开销；业务需要真实指标时，在装配点构造 prom 适配器并经组件 option 注入（与日志同一注入规范），模板自身对 Meter 无任何装配代码。
+**Meter**：骨架自身零装配代码——组件经 observ.Meter 埋点时缺省 Noop、零开销；内置组件库的 **promc**（附录 D）提供开箱即用的出口：私有 Prometheus registry + `/metrics` `/health` 端点，并以 `adapters/prom` 实现 `observ.Meter` 供装配点经组件 option 注入（与日志同一注入规范）。不接线 promc 的项目维持 Noop 缺省，模板行为不变。
+
+**链路关联**：内置组件库的 **otelc**（附录 D）在装配后自动为日志注入链路属性——ctx 携带有效 span 的日志调用附加 `trace_id` / `span_id`（注入做在 observ 边界的装饰层，不接管任何日志全局；无 span 时零属性差异）。该能力依赖 observ v0.2.0 的 ctx 签名；模板调用点因此始终传真实 ctx（基础设施路径无业务 span，传 `context.Background()`）。
 
 **日志规范**（模板自有代码执行，原生组件建议同遵）：
 
@@ -638,4 +642,29 @@ nacos 已内置：`internal/components/nacos`（cfg 配置中心 Source + reg �
 ## 附录 C：文档纪律
 
 - 新模板仓库文档四件：`docs/DESIGN.md`（本文）、`docs/ASSETS.md`（资产清单）、`CONTEXT.md`（术语表，从本文 §3 拆出随代码演进维护）、`docs/adr/`（架构决策记录）；另附仓库门面 `README.md`（quickstart）与 `LICENSE`（MIT）。
-- **ADR 判据**（三者齐备才立）：难以逆转、缺上下文会令未来读者困惑、真实权衡的结果。本设计配套 ADR 三份：ADR-0001 组件零依赖与装配点胶水、ADR-0002 复制式消费、ADR-0003 日志单一 observ 调用面。设计文档本身维持定稿直叙、无中间决策；ADR 仅作决策背景补充，**不是实现依赖**（不读 ADR 亦可凭本文完成实现）。
+- **ADR 判据**（三者齐备才立）：难以逆转、缺上下文会令未来读者困惑、真实权衡的结果。本设计配套 ADR 四份：ADR-0001 组件零依赖与装配点胶水、ADR-0002 复制式消费、ADR-0003 日志单一 observ 调用面、ADR-0004 可观测组件进内置库与 observ ctx 演进。设计文档本身维持定稿直叙、无中间决策；ADR 仅作决策背景补充，**不是实现依赖**（不读 ADR 亦可凭本文完成实现）。
+
+## 附录 D：可观测组件参考
+
+otelc 与 promc 已内置：`internal/components/otelc`（OTel 链路追踪）、
+`internal/components/promc`（指标与健康检查），组件 README 含复制即用的
+接入代码、配置节与字段表。
+
+接入要点（详见组件 README）：
+
+- 两组件均不热更（启动期配置），资源标识（service.name / env）不经
+  yaml——装配点从应用元数据传入（`WithService(meta.Name, effEnv)`）
+- otelc 的承重行为：endpoint 为空也安装 TracerProvider，trace_id 生成
+  与日志关联照常工作，仅不导出；endpoint 非空才创建 OTLP 导出器
+  （grpc/http，恒 insecure——TLS 与凭据不在范围）
+- otelc 的日志注入做在 observ 边界装饰层：动态读 `DefaultLogger()`
+  的调用自动携带 trace_id/span_id；构造期快照持有者保持旧面——
+  **otelc 接在日志后端组件（如 zapc）之后接线**；zapc 热更重建会重绑
+  observ 默认、使装饰脱落（重接线或重启即恢复）
+- promc 的 Meter 即 §9 所述出口：`Meter()` 返回注册到私有 registry 的
+  `observ.Meter`，装配点经组件 option 注入业务；在 prometheus 默认
+  registry 注册的自定义 collector 不会出现在 `/metrics`
+- 跨组件健康检查由装配点胶水登记（`promc.RegisterCheck`），组件间零
+  import；零登记时 `/health` 恒 healthy
+- OTel logs 信号（日志导出 OTLP）不在范围——与 slog 面的融合是独立
+  决策；模板无 HTTP server，链路传播中间件（otelhttp 等）同样不在范围
