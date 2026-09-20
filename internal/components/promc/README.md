@@ -70,25 +70,25 @@ mux.Handle("/health", pm.HealthHandler())
 
 ## 字段速查
 
-| 字段 | 缺省 | 说明 |
-|---|---|---|
-| addr | ":9090" | 监听地址（`:0` 时端口内核分配，`Addr()` 取实际值）；变更重启生效 |
-| metrics_path | /metrics | 指标暴露路径；须以 `/` 起头；变更重启生效 |
-| health_path | /health | 健康检查路径；须以 `/` 起头且与 metrics_path 相异；变更重启生效 |
+| 字段           | 缺省       | 说明                                        |
+|--------------|----------|-------------------------------------------|
+| addr         | ":9090"  | 监听地址（`:0` 时端口内核分配，`Addr()` 取实际值）；变更重启生效   |
+| metrics_path | /metrics | 指标暴露路径；须以 `/` 起头；变更重启生效                   |
+| health_path  | /health  | 健康检查路径；须以 `/` 起头且与 metrics_path 相异；变更重启生效 |
 
 ## 生命周期 API
 
-| API | 说明 |
-|---|---|
-| `Default() Config` | 默认值基座（与 `config.Decode` 成对使用） |
-| `(Config).Validate() error` | 校验取值（非空 / `/` 起头 / 两路径相异） |
-| `New(cfg Config) (*Prom, error)` | 构造 registry 与路由（无副作用、不监听）；失败无资源需清理 |
-| `(*Prom).Start(ctx) error` | 同步监听（绑定错误 fail-fast）后起服务 goroutine |
-| `(*Prom).Stop(ctx) error` | 预算内优雅关停；幂等，失败降级警告 |
-| `(*Prom).Meter() observ.Meter` | 注册到私有 registry 的 observ.Meter（装配点注入业务） |
-| `(*Prom).Registry() prometheus.Registerer` | 私有 registry（自定义 Collector 注册用） |
-| `(*Prom).RegisterCheck(name string, fn CheckFunc)` | 登记命名健康检查（装配点胶水） |
-| `(*Prom).MetricsHandler() http.Handler` | `/metrics` 等价 handler（单端口注入用） |
-| `(*Prom).HealthHandler() http.Handler` | 健康检查等价 handler（单端口注入用） |
-| `(*Prom).Addr() string` | 实际监听地址（Start 后生效；`:0` 分配时取实际端口） |
+| API                                                 | 说明                                          |
+|-----------------------------------------------------|---------------------------------------------|
+| `Default() Config`                                  | 默认值基座（与 `config.Decode` 成对使用）               |
+| `(Config).Validate() error`                         | 校验取值（非空 / `/` 起头 / 两路径相异）                   |
+| `New(cfg Config) (*Prom, error)`                    | 构造 registry 与路由（无副作用、不监听）；失败无资源需清理          |
+| `(*Prom).Start(ctx) error`                          | 同步监听（绑定错误 fail-fast）后起服务 goroutine          |
+| `(*Prom).Stop(ctx) error`                           | 预算内优雅关停；幂等，失败降级警告                           |
+| `(*Prom).Meter() observ.Meter`                      | 注册到私有 registry 的 observ.Meter（装配点注入业务）      |
+| `(*Prom).Registry() prometheus.Registerer`          | 私有 registry（自定义 Collector 注册用）              |
+| `(*Prom).RegisterCheck(name string, fn CheckFunc)`  | 登记命名健康检查（装配点胶水）                             |
+| `(*Prom).MetricsHandler() http.Handler`             | `/metrics` 等价 handler（单端口注入用）               |
+| `(*Prom).HealthHandler() http.Handler`              | 健康检查等价 handler（单端口注入用）                      |
+| `(*Prom).Addr() string`                             | 实际监听地址（Start 后生效；`:0` 分配时取实际端口）             |
 | `CheckFunc func() error` / `Status` / `CheckResult` | 健康检查契约：nil = 健康；Status: healthy / unhealthy |

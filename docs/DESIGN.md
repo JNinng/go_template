@@ -4,9 +4,11 @@
 
 ## 1. 定位与消费方式
 
-**是什么**：Go 长驻服务的项目模板，覆盖五项基础能力——命令、应用元数据、配置、日志、优雅停机。其余一切功能以**组件**形态按需引入：内置组件库（`internal/components`，随模板分发、删留自便）与组件资产（独立 Go module，见 §11/§12）两种载体。
+**是什么**：Go 长驻服务的项目模板，覆盖五项基础能力——命令、应用元数据、配置、日志、优雅停机。其余一切功能以**组件**
+形态按需引入：内置组件库（`internal/components`，随模板分发、删留自便）与组件资产（独立 Go module，见 §11/§12）两种载体。
 
-**目标业务形态**：HTTP API、gRPC、消息消费者、定时任务及其混合。一次性任务以兄弟子命令存在（§6），不使用热更与停机设施；纯 CLI 工具不是目标形态。
+**目标业务形态**：HTTP API、gRPC、消息消费者、定时任务及其混合。一次性任务以兄弟子命令存在（§6），不使用热更与停机设施；纯 CLI
+工具不是目标形态。
 
 **不是什么**：不是框架、不是可 import 的依赖库。模板被复制后即为项目自有代码，可自由修改；模板对使用方式没有任何运行时约束（无注册、无发现、无注入机制）。
 
@@ -28,17 +30,24 @@
 
 - 组件无法依赖模板——模板是复制型资产，落地后每个项目的 module 路径都不同，依赖天然单向（项目 → 组件）
 - 组件的依赖不受模板约束：组件（尤其第三方库）依赖什么由其自定，模板不设限；observ 只是原生组件的**推荐**抽象面，不是准入门槛
-- 模板自有代码不 import 任何组件；远程源与业务组件的引入只发生在两处装配入口：`internal/app/sources.go` 的 `setupSources`、`internal/app/biz.go` 的 `setupBiz`（§4、§11）
+- 模板自有代码不 import 任何组件；远程源与业务组件的引入只发生在两处装配入口：`internal/app/sources.go` 的 `setupSources`、
+  `internal/app/biz.go` 的 `setupBiz`（§4、§11）
 
 ## 2. 验收标准
 
 1. **落地 5 步**：复制 → 改 module 名 → build → run → Ctrl+C 优雅退出（退出码 0）
-2. **引入组件触点**：内置组件直接在装配入口接线（无需 go get，见各组件 README）；组件资产 `go get` + 装配入口一处（远程源 → `setupSources`；业务组件 → 业务入口 `biz.go` 的 `AddComponent`，或等价手写展开）+ 配置节粘贴（无配置组件省略）；**不修改模板任何既有文件**（`setupSources` 为预留空实现；`setupBiz` 内置占位业务 `biz.Hello`，替换该包即接入真实业务）
-3. **依赖随删随清**：模板与内置组件的依赖随组件进入 go.mod；删除不需要的组件目录并 `go mod tidy` 后，go.mod 直接依赖即收敛为实际使用集（骨架基线四件：cobra、gopkg.in/yaml.v3、fsnotify、observ）
+2. **引入组件触点**：内置组件直接在装配入口接线（无需 go get，见各组件 README）；组件资产 `go get` + 装配入口一处（远程源 →
+   `setupSources`；业务组件 → 业务入口 `biz.go` 的 `AddComponent`，或等价手写展开）+ 配置节粘贴（无配置组件省略）；*
+   *不修改模板任何既有文件**（`setupSources` 为预留空实现；`setupBiz` 内置占位业务 `biz.Hello`，替换该包即接入真实业务）
+3. **依赖随删随清**：模板与内置组件的依赖随组件进入 go.mod；删除不需要的组件目录并 `go mod tidy` 后，go.mod
+   直接依赖即收敛为实际使用集（骨架基线四件：cobra、gopkg.in/yaml.v3、fsnotify、observ）
 4. **热更可演示**：修改 `log.level` 保存即生效（无需重启）；引入示例组件（internal/components/greeter）后其配置节热更同样可演示
 5. **占位基线**：模板原样运行 = announce 启动行 + 占位业务一行（`biz_started`）→ 静默等待信号 → 预算内干净退出；两组件同场演示多组件组合与启停顺序
 6. **fail-fast**：任一组件构造或启动失败 → 已启动者逆序停止 → 退出码 1
-7. **模板自带测试**：`go test ./...` 覆盖难点单测——config 包（合并分层、from_env 收集与类型推断、严格解码、Watch 收敛/合并/取消、多环境文件名推导）、runner（顺序启动/逆序停止、Start 失败回滚、停机预算）、logging（level 热更）、`AddComponent`（测试内 stub 组件）、可观测组件（otelc 空 endpoint 模式与日志 trace 注入、promc 端点聚合与 Meter 闭环）；信号触发路径仅 POSIX build-tag 测试。验收 5 步保持手动演示。
+7. **模板自带测试**：`go test ./...` 覆盖难点单测——config 包（合并分层、from_env 收集与类型推断、严格解码、Watch
+   收敛/合并/取消、多环境文件名推导）、runner（顺序启动/逆序停止、Start 失败回滚、停机预算）、logging（level 热更）、`AddComponent`
+   （测试内 stub 组件）、可观测组件（otelc 空 endpoint 模式与日志 trace 注入、promc 端点聚合与 Meter 闭环）；信号触发路径仅
+   POSIX build-tag 测试。验收 5 步保持手动演示。
 
 ## 3. 术语表
 
@@ -63,13 +72,13 @@ main.go（3 行：internal/cmd.Execute()）
          6. r.Run()         信号 → root ctx → 顺序 Start → 阻塞等待 → 逆序 Stop（预算内）
 ```
 
-| 层 | 成员 | 职责 |
-|---|---|---|
-| 命令层 | `internal/cmd`（cobra） | 参数解析、子命令、进程退出码 |
-| 装配层 | `internal/app`（Run / setupSources+setupBiz / metadata+announce / logging / AddComponent） | 启动时序、源与组件装配、优雅停机 |
-| 运行器 | `internal/runner`（Runner：Add / StartAll / StopAll / Run） | 生命周期机制：顺序启动、逆序停止、信号、预算 |
-| 配置层 | `internal/config` | 加载、合并、节读取、热更总线、Source 接口、Dump |
-| 组件层 | 外部资产（独立 module） | 一切业务与基础能力 |
+| 层   | 成员                                                                                       | 职责                            |
+|-----|------------------------------------------------------------------------------------------|-------------------------------|
+| 命令层 | `internal/cmd`（cobra）                                                                    | 参数解析、子命令、进程退出码                |
+| 装配层 | `internal/app`（Run / setupSources+setupBiz / metadata+announce / logging / AddComponent） | 启动时序、源与组件装配、优雅停机              |
+| 运行器 | `internal/runner`（Runner：Add / StartAll / StopAll / Run）                                 | 生命周期机制：顺序启动、逆序停止、信号、预算        |
+| 配置层 | `internal/config`                                                                        | 加载、合并、节读取、热更总线、Source 接口、Dump |
+| 组件层 | 外部资产（独立 module）                                                                          | 一切业务与基础能力                     |
 
 引导失败（config.Load、远程源接入、日志装配、业务装配任一步出错）时日志可能未就绪：错误信息直写 stderr，进程退出码 1。
 
@@ -123,49 +132,54 @@ log:
 ```
 
 - Go 版本要求：1.25+
-- 模板 go.mod 第三方依赖白名单：`github.com/spf13/cobra`、`gopkg.in/yaml.v3`、`github.com/fsnotify/fsnotify`、`github.com/jninng/observ`
+- 模板 go.mod 第三方依赖白名单：`github.com/spf13/cobra`、`gopkg.in/yaml.v3`、`github.com/fsnotify/fsnotify`、
+  `github.com/jninng/observ`
 
 ## 6. 命令体系
 
 CLI 库为 cobra。命令集两个，刻意收敛：
 
-| 命令 | 行为 |
-|---|---|
-| `run`（root 默认，无参数即执行） | 完整启动时序（§4），阻塞至信号，返回值决定退出码 |
-| `version` | 打印 `var Version`（构建期 ldflags 注入，缺省 `dev`）；仅版本字符串一行输出，不带 name/env 前缀 |
+| 命令                    | 行为                                                                  |
+|-----------------------|---------------------------------------------------------------------|
+| `run`（root 默认，无参数即执行） | 完整启动时序（§4），阻塞至信号，返回值决定退出码                                           |
+| `version`             | 打印 `var Version`（构建期 ldflags 注入，缺省 `dev`）；仅版本字符串一行输出，不带 name/env 前缀 |
 
 **run 的 flag**（影响配置的唯一入口）：
 
-| flag | 缺省 | 语义 |
-|---|---|---|
-| `--config` | `configs/config.yaml` | 基础配置文件路径 |
-| `--env` | 读 `APP_ENV` | 选定多环境文件（§8）；显式指定而文件缺失 → fail-fast |
-| `--log-level` | 无 | 静态覆盖 `log.level`，置合并栈顶（§8） |
+| flag          | 缺省                    | 语义                                |
+|---------------|-----------------------|-----------------------------------|
+| `--config`    | `configs/config.yaml` | 基础配置文件路径                          |
+| `--env`       | 读 `APP_ENV`           | 选定多环境文件（§8）；显式指定而文件缺失 → fail-fast |
+| `--log-level` | 无                     | 静态覆盖 `log.level`，置合并栈顶（§8）        |
 
-**扩展一次性子命令**：在 `internal/cmd` 增加普通 cobra 子命令即可（如数据修复、迁移任务）。兄弟子命令自行管理生命周期与 `os.Exit`，不经过 runner、不享受热更与优雅停机。
+**扩展一次性子命令**：在 `internal/cmd` 增加普通 cobra 子命令即可（如数据修复、迁移任务）。兄弟子命令自行管理生命周期与
+`os.Exit`，不经过 runner、不享受热更与优雅停机。
 
 **退出码**：
 
-| 场景 | 码 |
-|---|---|
-| 信号触发、预算内完成停机 | 0 |
+| 场景               | 码 |
+|------------------|---|
+| 信号触发、预算内完成停机     | 0 |
 | 任一组件构造或 Start 失败 | 1 |
-| 停机超总预算被强杀 | 1 |
-| 收到第二个信号被强杀 | 1 |
-| 引导期（配置/装配）失败 | 1 |
+| 停机超总预算被强杀        | 1 |
+| 收到第二个信号被强杀       | 1 |
+| 引导期（配置/装配）失败     | 1 |
 
 ## 7. 应用元数据
 
 - **`app:` 节**（模板自持定义，位于 `internal/app/metadata.go`）：
-  - `name`（string，必填非空）：应用名。缺失或为空 → 启动 fail-fast。
-  - `env`（string，可选）：运行环境**声明值**，供下游消费（启动日志、可观测资源、注册分组）。
-- **生效 env 的解析顺序**：`--env` > `APP_ENV` > `app.env` 声明值 > 空。前两者同时是**唯一**有权选择多环境文件的输入（避免"配置里改 env 换文件"的循环依赖）。
+    - `name`（string，必填非空）：应用名。缺失或为空 → 启动 fail-fast。
+    - `env`（string，可选）：运行环境**声明值**，供下游消费（启动日志、可观测资源、注册分组）。
+- **生效 env 的解析顺序**：`--env` > `APP_ENV` > `app.env` 声明值 > 空。前两者同时是**唯一**有权选择多环境文件的输入（避免"
+  配置里改 env 换文件"的循环依赖）。
 - **Version**：`internal/app` 包级 `var Version = "dev"`，构建期注入：
   ```
   go build -ldflags "-X '<module>/internal/app.Version=v1.2.3'" ./cmd/app
   ```
   Version 不进配置文件。
-- **启动行**：由 **announce 组件**承载（首个注册、首个启动，§4/§10）：`observ.DefaultLogger().Log(ctx, slog.LevelInfo, "service_started", slog.String("app_name", …), slog.String("app_env", …), slog.String("app_version", …))`（消息与字段 snake_case，见 §9 日志规范），模板运行的最小可见信号。
+- **启动行**：由 **announce 组件**承载（首个注册、首个启动，§4/§10）：
+  `observ.DefaultLogger().Log(ctx, slog.LevelInfo, "service_started", slog.String("app_name", …), slog.String("app_env", …), slog.String("app_version", …))`
+  （消息与字段 snake_case，见 §9 日志规范），模板运行的最小可见信号。
 - **消费方式**：元数据是纯数据。组件需要它时由装配点显式传参（如注册组件的 service name 传 `meta.Name`），不存在元数据广播机制。
 
 ## 8. 配置体系
@@ -173,8 +187,10 @@ CLI 库为 cobra。命令集两个，刻意收敛：
 ### 8.1 文件与定位
 
 - 基础文件：`--config` 指定，缺省 `configs/config.yaml`。缺失 → fail-fast。
-- 多环境文件：生效 env 非空时，在基础文件同目录、扩展名前插 `.<env>`（`config.yaml` + `--env prod` → `config.prod.yaml`）。显式指定而文件缺失 → fail-fast。多环境文件与基础文件享有同等的热更监听。
-- 文件监听实现要求：监听父目录并按路径过滤——fsnotify 直监听文件会漏掉 symlink 替换（k8s ConfigMap）与编辑器原子写（temp+rename）两类事件。
+- 多环境文件：生效 env 非空时，在基础文件同目录、扩展名前插 `.<env>`（`config.yaml` + `--env prod` → `config.prod.yaml`
+  ）。显式指定而文件缺失 → fail-fast。多环境文件与基础文件享有同等的热更监听。
+- 文件监听实现要求：监听父目录并按路径过滤——fsnotify 直监听文件会漏掉 symlink 替换（k8s
+  ConfigMap）与编辑器原子写（temp+rename）两类事件。
 - 格式：yaml。顶层节 = 组件领地；`app` 与 `log` 归模板，组件节名不得与之冲突（装配者保证，模板不做校验）。
 
 ### 8.2 合并分层（低 → 高）
@@ -190,7 +206,8 @@ CLI 库为 cobra。命令集两个，刻意收敛：
 
 - 合并语义：map 深合并；标量与数组整体覆盖，不做数组拼接。
 - **静态覆盖层**（from_env、flag）在启动时一次性生效，其后文件与远程的任何变更都不改写其结果；每次树重建时静态层重新套用。
-- 热更引发的每次树重建与重解码，都按同一分层重新合并——代码默认值始终是基座、静态层始终在栈顶，**运行时覆盖与启动时同构**（§11.5 的 `AddComponent` / `config.Watch` 重解码即依赖此性质）。
+- 热更引发的每次树重建与重解码，都按同一分层重新合并——代码默认值始终是基座、静态层始终在栈顶，**运行时覆盖与启动时同构**
+  （§11.5 的 `AddComponent` / `config.Watch` 重解码即依赖此性质）。
 - 远程源对配置的解析失败：记日志丢弃该快照，维持上一有效树（全量快照语义下最终一致）。本地文件变更解析失败同理。
 - `nacos.config` 一类的"引导自身所需"配置只能来自本地层（读它时远程尚未连通），由组件文档声明，模板不特殊处理。
 
@@ -247,9 +264,12 @@ type Source interface {
 }
 ```
 
-- Source 由组件构成（内置组件或资产，如 nacos 客户端），模板只认此接口；Source 的签名全部由朴素类型构成，**可由结构化类型满足**——资产零 import 模板、暴露同签名方法即可直传 `Attach`，无需适配胶水（接入示例见附录 B）。
+- Source 由组件构成（内置组件或资产，如 nacos 客户端），模板只认此接口；Source 的签名全部由朴素类型构成，**可由结构化类型满足
+  **——资产零 import 模板、暴露同签名方法即可直传 `Attach`，无需适配胶水（接入示例见附录 B）。
 - 不可达策略（fail / disable）是组件资产的客户端选项，不是模板机制。
-- **装配纪律——先源后一切**：源接线（`setupSources`）先于日志装配与一切组件装配；配合 `Attach` 的首快照同步语义，日志初值与组件初值都总是完整的"本地 + 远程 + 静态层"合并结果，不存在"后附源靠热更收敛"的时序歧义（非热更字段如 `log.format` 也因此可由远程治理）。
+- **装配纪律——先源后一切**：源接线（`setupSources`）先于日志装配与一切组件装配；配合 `Attach`
+  的首快照同步语义，日志初值与组件初值都总是完整的"本地 + 远程 + 静态层"合并结果，不存在"后附源靠热更收敛"的时序歧义（非热更字段如
+  `log.format` 也因此可由远程治理）。
 
 ### 8.6 热更总线契约
 
@@ -258,16 +278,25 @@ type Source interface {
 - **收敛语义**：`Watch` 建立即以当前值首调一次；`apply` 必须幂等（相同值无操作）。
 - **隔离**：apply 内 panic 被 recover 并记日志；apply 应快速返回，重活自行异步。
 - **取消**：`cancel()` 返回后该订阅无在途且无后续回调。
-- 初始配置永远在装配期以 `Decode` 显式读取；`Watch` 建立时的收敛首调与 `Decode` 结果一致（幂等实现下无操作），真正的变更投递只发生于其后——收敛首调同时封住 Decode 与订阅建立之间的竞态间隙。
+- 初始配置永远在装配期以 `Decode` 显式读取；`Watch` 建立时的收敛首调与 `Decode` 结果一致（幂等实现下无操作），真正的变更投递只发生于其后——收敛首调同时封住
+  Decode 与订阅建立之间的竞态间隙。
 
 ## 9. 日志
 
-**单一调用面**：模板代码严格经 **observ.Logger**（`Enabled(ctx, slog.Level) bool` / `Log(ctx, level, msg string, attrs ...slog.Attr)`，级别与属性复用 slog 类型；observ v0.2.0 起两方法携带 ctx、签名与 slog.Logger 逐字对齐——链路上下文由此流到实现侧，见下文"链路关联"）。组件不强制：原生组件推荐同走 observ 约定（§11），第三方组件按其日志面经适配层桥接（见下表）。装配点设置 observ 默认后端：缺省实现零配置可用（基于 stdlib 构建）；业务换 zap 时在装配点一处换向，业务自身代码直调 zap——不经 observ、不经任何中间层，高频路径零额外开销。
+**单一调用面**：模板代码严格经 **observ.Logger**（`Enabled(ctx, slog.Level) bool` /
+`Log(ctx, level, msg string, attrs ...slog.Attr)`，级别与属性复用 slog 类型；observ v0.2.0 起两方法携带 ctx、签名与
+slog.Logger 逐字对齐——链路上下文由此流到实现侧，见下文"链路关联"）。组件不强制：原生组件推荐同走 observ
+约定（§11），第三方组件按其日志面经适配层桥接（见下表）。装配点设置 observ 默认后端：缺省实现零配置可用（基于 stdlib 构建）；业务换
+zap 时在装配点一处换向，业务自身代码直调 zap——不经 observ、不经任何中间层，高频路径零额外开销。
 
 **持有规则**：
 
-- **模板包**：不持有 logger 字段，调用点动态读 `observ.DefaultLogger()`（atomic 读，无锁；模板无高频路径，读取代价可忽略）。原因：config 包的构造早于日志装配（`log:` 节在配置里，先有配置后有后端），构造期快照会永久固定在 Noop；动态读同时保证换后端对已构造的模板设施立即生效。
-- **组件资产**：不做统一要求。原生组件推荐按 observ 规范——`WithLogger(observ.Logger)` option 显式注入（测试捕获用），未注入时构造期快照 `observ.DefaultLogger()`，组件构造发生在装配点、晚于后端设置，快照即正确后端。**源角色组件例外**：在 `setupSources` 构造（早于日志装配），快照会永久固定在 Noop——此类组件须动态读 `observ.DefaultLogger()`（低频路径，代价可忽略），不可达降级类高信号告警宜双通道（observ + 直写 stderr）保底（nacos 组件即此形态）。第三方组件按其自身日志面经适配层桥接（见下表）。
+- **模板包**：不持有 logger 字段，调用点动态读 `observ.DefaultLogger()`（atomic 读，无锁；模板无高频路径，读取代价可忽略）。原因：config
+  包的构造早于日志装配（`log:` 节在配置里，先有配置后有后端），构造期快照会永久固定在 Noop；动态读同时保证换后端对已构造的模板设施立即生效。
+- **组件资产**：不做统一要求。原生组件推荐按 observ 规范——`WithLogger(observ.Logger)` option 显式注入（测试捕获用），未注入时构造期快照
+  `observ.DefaultLogger()`，组件构造发生在装配点、晚于后端设置，快照即正确后端。**源角色组件例外**：在 `setupSources`
+  构造（早于日志装配），快照会永久固定在 Noop——此类组件须动态读 `observ.DefaultLogger()`
+  （低频路径，代价可忽略），不可达降级类高信号告警宜双通道（observ + 直写 stderr）保底（nacos 组件即此形态）。第三方组件按其自身日志面经适配层桥接（见下表）。
 
 **装配点**（`internal/app/logging.go`，换后端的唯一改动处）：
 
@@ -297,27 +326,29 @@ func setupLogging(t *config.Tree, r *runner) error {
 
 **`log:` 节字段**（模板自持默认值：level=info、format=text、output=stdout）：
 
-| 字段 | 取值 | 热更 |
-|---|---|---|
-| `level` | debug / info / warn / error | **是**（唯一热更字段，作用于后端级别，调用面无感） |
-| `format` | text / json | 否（重启生效） |
-| `output` | `stdout` 或文件路径 | 否（重启生效） |
+| 字段       | 取值                          | 热更                          |
+|----------|-----------------------------|-----------------------------|
+| `level`  | debug / info / warn / error | **是**（唯一热更字段，作用于后端级别，调用面无感） |
+| `format` | text / json                 | 否（重启生效）                     |
+| `output` | `stdout` 或文件路径              | 否（重启生效）                     |
 
-**非法 level 值**：启动期（flag 或文件）`level` 非法 → 构造失败 fail-fast；热更收到非法值 → 记 warn 保持旧值（Watch 契约：解码失败丢弃本次）。
+**非法 level 值**：启动期（flag 或文件）`level` 非法 → 构造失败 fail-fast；热更收到非法值 → 记 warn 保持旧值（Watch
+契约：解码失败丢弃本次）。
 
 **output 为文件**：logging 装配注册停机钩子关闭文件（stdlib handler 无缓冲，纯卫生，不丢数据）。
 
 **不做文件轮转**：`output` 文件仅追加。轮转归属部署侧（logrotate / 容器 runtime）或业务换入的 zap 方案——这是缺省日志链路保持零第三方依赖的边界。
 
-**原生组件如何拿到日志**：不显式传递。启动时序保证 setupLogging 先于组件装配，组件构造期快照 `observ.DefaultLogger()` 即正确后端；显式 `WithLogger` 注入保留给测试。模板与原生组件共享同一个包级默认，无传递机制。第三方组件不经此路径，按其日志面形态桥接（见下表）。
+**原生组件如何拿到日志**：不显式传递。启动时序保证 setupLogging 先于组件装配，组件构造期快照 `observ.DefaultLogger()`
+即正确后端；显式 `WithLogger` 注入保留给测试。模板与原生组件共享同一个包级默认，无传递机制。第三方组件不经此路径，按其日志面形态桥接（见下表）。
 
 **第三方库的日志面**（适配组件的桥接规则，按库接口形态三选一）：
 
-| 库的日志接口 | 接法 |
-|---|---|
+| 库的日志接口            | 接法                                                                    |
+|-------------------|-----------------------------------------------------------------------|
 | 接收 `*slog.Logger` | 传 `slog.Default()`——缺省后端即它；换 zap 时可选地把 slog.Default 一并重指向（见配方末行），零额外桥 |
-| 自有 logger 接口 | 适配层以 observ.Logger 实现该接口（几行委托代码） |
-| 接收 zap 等具体后端 | 直接传该后端实例，不绕 observ |
+| 自有 logger 接口      | 适配层以 observ.Logger 实现该接口（几行委托代码）                                      |
+| 接收 zap 等具体后端      | 直接传该后端实例，不绕 observ                                                    |
 
 **换 zap 配方**（`logging.go` 一处替换；业务代码直调 zap）：
 
@@ -329,16 +360,24 @@ observ.SetDefaultLogger(zaplog.New(z))   // 模板与组件全部换向（observ
 // 可选：把仍走 slog.Default() 的第三方库重指向 zap（zap 生态的 slog handler）
 ```
 
-业务代码直调 zap，不经任何桥接层；模板与组件经 zaplog 适配器直抵 zap，零改动（动态读与装配期换向都指向新后端）。level 热更由 zap 动态级别承接（如 `zapcore.NewAtomicLevel`）。
+业务代码直调 zap，不经任何桥接层；模板与组件经 zaplog 适配器直抵 zap，零改动（动态读与装配期换向都指向新后端）。level 热更由
+zap 动态级别承接（如 `zapcore.NewAtomicLevel`）。
 
-**Meter**：骨架自身零装配代码——组件经 observ.Meter 埋点时缺省 Noop、零开销；内置组件库的 **promc**（附录 D）提供开箱即用的出口：私有 Prometheus registry + `/metrics` `/health` 端点，并以 `adapters/prom` 实现 `observ.Meter` 供装配点经组件 option 注入（与日志同一注入规范）。不接线 promc 的项目维持 Noop 缺省，模板行为不变。
+**Meter**：骨架自身零装配代码——组件经 observ.Meter 埋点时缺省 Noop、零开销；内置组件库的 **promc**（附录 D）提供开箱即用的出口：私有
+Prometheus registry + `/metrics` `/health` 端点，并以 `adapters/prom` 实现 `observ.Meter` 供装配点经组件 option
+注入（与日志同一注入规范）。不接线 promc 的项目维持 Noop 缺省，模板行为不变。
 
-**链路关联**：内置组件库的 **otelc**（附录 D）在装配后自动为日志注入链路属性——ctx 携带有效 span 的日志调用附加 `trace_id` / `span_id`（注入做在 observ 边界的装饰层，不接管任何日志全局；无 span 时零属性差异）。该能力依赖 observ v0.2.0 的 ctx 签名；模板调用点因此始终传真实 ctx（基础设施路径无业务 span，传 `context.Background()`）。
+**链路关联**：内置组件库的 **otelc**（附录 D）在装配后自动为日志注入链路属性——ctx 携带有效 span 的日志调用附加 `trace_id` /
+`span_id`（注入做在 observ 边界的装饰层，不接管任何日志全局；无 span 时零属性差异）。该能力依赖 observ v0.2.0 的 ctx
+签名；模板调用点因此始终传真实 ctx（基础设施路径无业务 span，传 `context.Background()`）。
 
 **日志规范**（模板自有代码执行，原生组件建议同遵）：
 
-- 消息与字段一律 snake_case。消息命名 `{模块}_{动作}_{状态}`，后缀：操作失败 `_failed`（默认）、校验/状态异常 `_error`、正常态 `_success` / `_started` / `_completed`；字段必须带业务前缀（`app_name`、`file_path`、`error`），禁 `id` / `name` / `msg` 等模糊名。
-- 级别：技术故障（IO/连接/配置加载/panic）= Error 且自动附 `stack`（仅在错误最底层打一次）；业务与校验异常（热更值被拒等）= Warn；关键流程节点 = Info。配置值与敏感信息不落日志。
+- 消息与字段一律 snake_case。消息命名 `{模块}_{动作}_{状态}`，后缀：操作失败 `_failed`（默认）、校验/状态异常 `_error`、正常态
+  `_success` / `_started` / `_completed`；字段必须带业务前缀（`app_name`、`file_path`、`error`），禁 `id` / `name` / `msg`
+  等模糊名。
+- 级别：技术故障（IO/连接/配置加载/panic）= Error 且自动附 `stack`（仅在错误最底层打一次）；业务与校验异常（热更值被拒等）=
+  Warn；关键流程节点 = Info。配置值与敏感信息不落日志。
 - 并发安全：后端换向经 observ 原子替换，级别热更经 slog LevelVar——不存在对全局 logger 的直接重赋值。
 
 ## 10. 优雅停机
@@ -464,7 +503,8 @@ func (r *Runner) Run() error {
 - **原生组件**：按本约定编写，原生适配配置节、observ 等能力（术语见 [CONTEXT.md](../CONTEXT.md)）。
 - **适配组件**：对既有第三方库包一层薄壳使之符合约定，业务自写或由资产作者发布。
 - 载体两种：随模板分发的**内置组件库**与独立版本化的**组件资产**，组织与取舍见 §12。
-- 组件是普通 Go 代码，物理上无法依赖模板——复制型资产没有稳定 import 路径（ADR-0001）；依赖什么由组件自定，observ 是原生组件的**推荐**抽象面，不是门槛（§1）。
+- 组件是普通 Go 代码，物理上无法依赖模板——复制型资产没有稳定 import 路径（ADR-0001）；依赖什么由组件自定，observ 是原生组件的
+  **推荐**抽象面，不是门槛（§1）。
 - 第三方库无需满足任何约定——保持原样，贴合发生在适配层（ADR-0001）。
 
 ### 11.2 生命周期签名
@@ -499,7 +539,8 @@ func (c *Component) Client() *someclient.Client     // 可选：类型化访问�
 
 - 配置是**可选能力**：无配置的组件没有 Config / Default / 配置节，装配只做 New + Add（§11.5）。
 - 组件**独自**定义其配置节的结构、默认值与解析；节名由组件文档声明（建议包名或知名缩写）。
-- `Default()` 必须导出，与 `New` 成对——默认值在组件的公开签名面上，是**初始解码与热更重解码共同的基座**（缺失键回落默认、节消失回落全默认，都由它兜底）；配合 `config.Dump` 渲染为可粘贴 yaml，手动复制进项目 `config.yaml`：
+- `Default()` 必须导出，与 `New` 成对——默认值在组件的公开签名面上，是**初始解码与热更重解码共同的基座**
+  （缺失键回落默认、节消失回落全默认，都由它兜底）；配合 `config.Dump` 渲染为可粘贴 yaml，手动复制进项目 `config.yaml`：
 
   ```go
   // 任意一次性程序或测试中
@@ -511,11 +552,16 @@ func (c *Component) Client() *someclient.Client     // 可选：类型化访问�
 
 ### 11.4 并发纪律
 
-原生组件以 observ 接入规范为纪律基线：option 注入（`WithLogger` / `WithMeter`，缺省 Noop / 默认快照；**在 setupSources 构造的源角色组件例外——日志动态读而非快照**，其构造早于日志装配）；回调在调用方 goroutine 同步执行且必须快速返回；回调 panic 由组件 recover；热路径只做指标埋点，日志仅用于低频生命周期事件。第三方组件的并发行为由其自管，不在约定范围内。
+原生组件以 observ 接入规范为纪律基线：option 注入（`WithLogger` / `WithMeter`，缺省 Noop / 默认快照；**在 setupSources
+构造的源角色组件例外——日志动态读而非快照**，其构造早于日志装配）；回调在调用方 goroutine 同步执行且必须快速返回；回调 panic
+由组件 recover；热路径只做指标埋点，日志仅用于低频生命周期事件。第三方组件的并发行为由其自管，不在约定范围内。
 
 ### 11.5 装配形态（模板侧）
 
-业务组件的装配集中在**业务装配入口** `internal/app/biz.go`（`setupBiz`，Run 直接调用）——业务逻辑的定位点，业务代码与模板机制（AddComponent / lifecycle / setupSources）由此分家。模板内置占位业务 `biz.Hello`（启动输出一句日志）演示完整接入链路，项目落地后替换 `internal/biz` 包即可。引入组件 = 装配点一行（装配辅助）或三行手写，二者等价；辅助是糖，不是唯一路径：
+业务组件的装配集中在**业务装配入口** `internal/app/biz.go`（`setupBiz`，Run
+直接调用）——业务逻辑的定位点，业务代码与模板机制（AddComponent / lifecycle / setupSources）由此分家。模板内置占位业务
+`biz.Hello`（启动输出一句日志）演示完整接入链路，项目落地后替换 `internal/biz` 包即可。引入组件 =
+装配点一行（装配辅助）或三行手写，二者等价；辅助是糖，不是唯一路径：
 
 ```go
 // internal/app/biz.go —— 业务装配入口（Run 第 5 步直接调用）
@@ -596,7 +642,11 @@ r.Add("biz", biz.Start, biz.Stop)
 
 ## 12. 资产库组织
 
-- **内置组件库**：`internal/components/<name>`，随模板分发的组件菜单，每个组件独立一个包，依赖不设限（与普通第三方组件同待遇）。组件的依赖随组件进入模板 go.mod；复制方取舍自由——需要的直接 import 或拷出改造，不需要的整目录删除后 `go mod tidy` 依赖即清零（先移除对应接线行）。与 ADR-0001 的边界：被拒绝的是"以复制为分发形态、需要跨项目 bugfix 传播的资产库"；内置组件随模板整体分发、落地即项目自有，不存在该问题。需要独立版本化维护的组件仍走资产 module。用法详见 [internal/components/README.md](../internal/components/README.md)。
+- **内置组件库**：`internal/components/<name>`，随模板分发的组件菜单，每个组件独立一个包，依赖不设限（与普通第三方组件同待遇）。组件的依赖随组件进入模板
+  go.mod；复制方取舍自由——需要的直接 import 或拷出改造，不需要的整目录删除后 `go mod tidy` 依赖即清零（先移除对应接线行）。与
+  ADR-0001 的边界：被拒绝的是"以复制为分发形态、需要跨项目 bugfix 传播的资产库"
+  ；内置组件随模板整体分发、落地即项目自有，不存在该问题。需要独立版本化维护的组件仍走资产
+  module。用法详见 [internal/components/README.md](../internal/components/README.md)。
 
 - **资产** = 模板之外一切可复用 Go module：契约库（observ）、原生组件、适配组件。模板与资产共同构成"资产积累库"——模板是骨架，资产是积累。
 - **索引**：`ASSETS.md`（与本设计文档同目录），记录：名称 / module 路径 / 类型 / 配置节 / 热更能力 / 状态。
@@ -641,8 +691,11 @@ nacos 已内置：`internal/components/nacos`（cfg 配置中心 Source + reg �
 
 ## 附录 C：文档纪律
 
-- 新模板仓库文档四件：`docs/DESIGN.md`（本文）、`docs/ASSETS.md`（资产清单）、`CONTEXT.md`（术语表，从本文 §3 拆出随代码演进维护）、`docs/adr/`（架构决策记录）；另附仓库门面 `README.md`（quickstart）与 `LICENSE`（MIT）。
-- **ADR 判据**（三者齐备才立）：难以逆转、缺上下文会令未来读者困惑、真实权衡的结果。本设计配套 ADR 四份：ADR-0001 组件零依赖与装配点胶水、ADR-0002 复制式消费、ADR-0003 日志单一 observ 调用面、ADR-0004 可观测组件进内置库与 observ ctx 演进。设计文档本身维持定稿直叙、无中间决策；ADR 仅作决策背景补充，**不是实现依赖**（不读 ADR 亦可凭本文完成实现）。
+- 新模板仓库文档四件：`docs/DESIGN.md`（本文）、`docs/ASSETS.md`（资产清单）、`CONTEXT.md`（术语表，从本文 §3 拆出随代码演进维护）、
+  `docs/adr/`（架构决策记录）；另附仓库门面 `README.md`（quickstart）与 `LICENSE`（MIT）。
+- **ADR 判据**（三者齐备才立）：难以逆转、缺上下文会令未来读者困惑、真实权衡的结果。本设计配套 ADR 四份：ADR-0001
+  组件零依赖与装配点胶水、ADR-0002 复制式消费、ADR-0003 日志单一 observ 调用面、ADR-0004 可观测组件进内置库与 observ ctx
+  演进。设计文档本身维持定稿直叙、无中间决策；ADR 仅作决策背景补充，**不是实现依赖**（不读 ADR 亦可凭本文完成实现）。
 
 ## 附录 D：可观测组件参考
 

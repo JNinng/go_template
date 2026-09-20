@@ -111,17 +111,17 @@ zapc:
 
 ## 生命周期 API
 
-| API                                                                  | 说明                             |
-|----------------------------------------------------------------------|--------------------------------|
-| `Default() Config`                                                   | 默认值基座（与 `config.Decode` 成对使用）  |
-| `(Config).Validate() error`                                          | 校验取值，构造期与热更期共用同一拒绝标准           |
-| `New(cfg Config) (*Log, error)`                                      | 构造即校验并打开 sink；失败即未启动，无资源需清理    |
-| `(*Log).Start(ctx) error`                                            | `zap.ReplaceGlobals` 安装全局后立即返回 |
-| `(*Log).Stop(ctx) error`                                             | Sync 刷盘 + 释放句柄；幂等可重入           |
-| `(*Log).ApplyConfig(Config) error`                                   | 热更入口（委托 kit.Apply）：级别即时 / 其余重建，收敛语义 |
-| `Watcher func(apply func(Config) error) (cancel func())`             | 配置订阅能力（与 `config.Watch` 结构化对齐），装配点注入 |
-| `WithWatch(Watcher) Option`                                          | `NewLogger` 可选项：注入订阅，取消并入 Close |
-| `WithCore(core zapcore.Core) Option`                                 | `New` / `NewLogger` 可选项：旁路 core 并入 tee（热更重建自动带上，nil 忽略），供跨组件组合（如 otelc 日志导出） |
-| `WithOnSwap(func(*zap.Logger)) Option`                               | `NewLogger` 可选项：实例换新回调（初始 + 每次热更重建），供 observ 桥等旁路绑定跟随 |
-| `NewLogger(cfg Config, ...Option) (LoggerKit, error)`                | 工厂：实例与热更状态收于 kit 内部，其他自建 zap 日志的组件复用 |
-| `LoggerKit` 方法：`Debug / Info / Warn / Error / DPanic / Check / Current / Apply / Rebuild / Close` | 调用面（Error 自带调用方栈；Check 级别禁用返回 nil）、当前实例（热更自动跟随）、智能热更入口、强制重建、取消订阅 + 释放句柄 |
+| API                                                                                               | 说明                                                                           |
+|---------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------|
+| `Default() Config`                                                                                | 默认值基座（与 `config.Decode` 成对使用）                                                |
+| `(Config).Validate() error`                                                                       | 校验取值，构造期与热更期共用同一拒绝标准                                                         |
+| `New(cfg Config) (*Log, error)`                                                                   | 构造即校验并打开 sink；失败即未启动，无资源需清理                                                  |
+| `(*Log).Start(ctx) error`                                                                         | `zap.ReplaceGlobals` 安装全局后立即返回                                               |
+| `(*Log).Stop(ctx) error`                                                                          | Sync 刷盘 + 释放句柄；幂等可重入                                                         |
+| `(*Log).ApplyConfig(Config) error`                                                                | 热更入口（委托 kit.Apply）：级别即时 / 其余重建，收敛语义                                          |
+| `Watcher func(apply func(Config) error) (cancel func())`                                          | 配置订阅能力（与 `config.Watch` 结构化对齐），装配点注入                                         |
+| `WithWatch(Watcher) Option`                                                                       | `NewLogger` 可选项：注入订阅，取消并入 Close                                              |
+| `WithCore(core zapcore.Core) Option`                                                              | `New` / `NewLogger` 可选项：旁路 core 并入 tee（热更重建自动带上，nil 忽略），供跨组件组合（如 otelc 日志导出） |
+| `WithOnSwap(func(*zap.Logger)) Option`                                                            | `NewLogger` 可选项：实例换新回调（初始 + 每次热更重建），供 observ 桥等旁路绑定跟随                        |
+| `NewLogger(cfg Config, ...Option) (LoggerKit, error)`                                             | 工厂：实例与热更状态收于 kit 内部，其他自建 zap 日志的组件复用                                         |
+| `LoggerKit` 方法：`Debug / Info / Warn / Error / DPanic / Check / Current / Apply / Rebuild / Close` | 调用面（Error 自带调用方栈；Check 级别禁用返回 nil）、当前实例（热更自动跟随）、智能热更入口、强制重建、取消订阅 + 释放句柄      |

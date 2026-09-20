@@ -95,20 +95,20 @@ otelc:
 
 ## 字段速查
 
-| 字段 | 缺省 | 说明 |
-|---|---|---|
-| endpoint | ""（不导出） | OTLP collector 地址 host:port；变更重启生效 |
-| protocol | grpc | grpc / http；变更重启生效 |
-| logs_enabled | false | OTLP 日志导出（依赖 zapc 后端）；true 需 endpoint 非空；变更重启生效 |
+| 字段           | 缺省      | 说明                                              |
+|--------------|---------|-------------------------------------------------|
+| endpoint     | ""（不导出） | OTLP collector 地址 host:port；变更重启生效              |
+| protocol     | grpc    | grpc / http；变更重启生效                              |
+| logs_enabled | false   | OTLP 日志导出（依赖 zapc 后端）；true 需 endpoint 非空；变更重启生效 |
 
 ## 生命周期 API
 
-| API | 说明 |
-|---|---|
-| `Default() Config` | 默认值基座（与 `config.Decode` 成对使用） |
-| `(Config).Validate() error` | 校验取值（protocol 仅 grpc/http） |
+| API                                           | 说明                                                             |
+|-----------------------------------------------|----------------------------------------------------------------|
+| `Default() Config`                            | 默认值基座（与 `config.Decode` 成对使用）                                  |
+| `(Config).Validate() error`                   | 校验取值（protocol 仅 grpc/http）                                     |
 | `New(cfg Config, ...Option) (*Tracer, error)` | 构造即装配全局 provider + 装饰日志面（logs_enabled 时另建日志导出管线）；失败即未启动，无资源需清理 |
-| `WithService(name, env string) Option` | 设置资源标识（service.name / deployment.environment.name），span 与日志共用 |
-| `(*Tracer).LogCore() zapcore.Core` | OTLP 日志导出的 zap core（未启用时 nil）；装配点经 `zapc.WithCore` 组合进 tee |
-| `(*Tracer).Start(ctx) error` | 输出启动信号（含 endpoint / export 状态）后立即返回 |
-| `(*Tracer).Stop(ctx) error` | 预算内 flush span；幂等，失败降级警告 |
+| `WithService(name, env string) Option`        | 设置资源标识（service.name / deployment.environment.name），span 与日志共用  |
+| `(*Tracer).LogCore() zapcore.Core`            | OTLP 日志导出的 zap core（未启用时 nil）；装配点经 `zapc.WithCore` 组合进 tee     |
+| `(*Tracer).Start(ctx) error`                  | 输出启动信号（含 endpoint / export 状态）后立即返回                            |
+| `(*Tracer).Stop(ctx) error`                   | 预算内 flush span；幂等，失败降级警告                                       |
