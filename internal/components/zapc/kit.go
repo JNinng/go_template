@@ -17,10 +17,24 @@ type Watcher func(apply func(Config) error) (cancel func())
 type options struct {
 	watch  Watcher
 	onSwap func(*zap.Logger) // 实例换新回调（初始构建与每次热更重建都触发）
+	extra  []zapcore.Core    // 旁路 core（WithCore 注入；nil 项忽略）
 }
 
 // Option 构造选项。
 type Option func(*options)
+
+// WithCore 注入旁路 core：与组件自建 core 经 NewTee 并联、共享构建路径
+// ——初始构建与每次热更重建都自动带上（core 是构建参数而非一次性注入，
+// 不存在"重建后攥着旧 tee"的脱落问题）。供跨组件组合：如 otelc 的
+// OTLP 日志导出 core 由装配点经本选项送入。core 的启停与 flush 生命周期
+// 归提供方组件；zapc 只负责写入（Sync 经 tee 自然传播）。传 nil 忽略。
+func WithCore(core zapcore.Core) Option {
+	return func(o *options) {
+		if core != nil {
+			o.extra = append(o.extra, core)
+		}
+	}
+}
 
 // WithWatch 注入配置节订阅：订阅即刻建立，节变更（含建立时的首调收敛）
 // 自动走 kit.Apply 择路；取消函数并入 Close。与 AddComponent 的自动订阅
@@ -49,6 +63,7 @@ type kitState struct {
 	curSkip1    atomic.Pointer[zap.Logger] // 跳一层封装帧的实例（kit 调用面专用）
 	cfg         Config                     // 当前生效配置（收敛判断基准）
 	level       zap.AtomicLevel
+	extra       []zapcore.Core    // WithCore 注入的旁路 core（每次构建都并联）
 	sinkClose   func()            // 当前 sink 句柄回收
 	watchCancel func()            // WithWatch 注入的订阅取消（nil = 未注入）
 	onSwap      func(*zap.Logger) // WithOnSwap 注入的换新回调（nil = 未注入）
@@ -76,7 +91,8 @@ func NewLogger(cfg Config, opts ...Option) (LoggerKit, error) {
 	}
 	st := &kitState{cfg: cfg}
 	st.level = zap.NewAtomicLevelAt(parsed)
-	logger, sinkClose, err := buildLogger(cfg, &st.level)
+	st.extra = o.extra
+	logger, sinkClose, err := buildLogger(cfg, &st.level, st.extra)
 	if err != nil {
 		return LoggerKit{}, err
 	}
@@ -198,7 +214,7 @@ func (s *kitState) rebuild(c Config) error {
 	if err != nil {
 		return fmt.Errorf("zapc: invalid level %q", c.Level)
 	}
-	next, nextClose, err := buildLogger(c, &s.level)
+	next, nextClose, err := buildLogger(c, &s.level, s.extra)
 	if err != nil {
 		return err
 	}

@@ -16,14 +16,17 @@
 **组件触点** `internal/app/biz.go`：
 
 ```go
-logc, err := AddComponent(t, r, "zapc", zapc.Default(), zapc.New)
+logc, err := AddComponent(t, r, "zapc", zapc.Default(),
+	func(c zapc.Config) (*zapc.Log, error) { return zapc.New(c) })
 if err != nil {
 	return err // 配置非法或输出打不开在此报错（退出码 1）
 }
 ```
 
-`New` 签名恰为 `func(Config) (*Log, error)`，可直接作 newFn；实现 `ApplyConfig`
-即自动订阅 `zapc` 节热更（`AddComponent` 内建识别）。
+`New` 为变参签名 `New(cfg, ...Option)`，直传 newFn 需经闭包适配；
+实现 `ApplyConfig` 即自动订阅 `zapc` 节热更（`AddComponent` 内建识别）。
+注入选项的典型场景：与 otelc 组合时传 `zapc.WithCore(tr.LogCore())`
+（OTLP 日志导出，见 otelc README）。
 
 **手动接线 / 纯 kit 复用**（绕开 AddComponent 时，注入订阅能力——组件包不
 import 模板 config 包，节的选择留在装配点）：
@@ -63,6 +66,10 @@ zapc:
 - **observ 桥**：`New` 起接管 observ 默认日志器（zaplog 适配），经
   `WithOnSwap` 跟随热更重建自动重绑；不跟随的绑定会在重建后攥着已关闭的
   旧实例——外部旁路设施一律走该钩子
+- **WithCore 旁路 core**：注入的 core 与自建 core 经 `NewTee` 并联、
+  共享构建路径——初始构建与每次热更重建都自动带上（构建参数而非一次性
+  注入，无"重建后脱落"问题）；core 的启停与 flush 生命周期归提供方
+  （如 otelc），zapc 只负责写入（Sync 经 tee 自然传播）；`nil` 忽略
 - **热更择路**：仅 `level` 变更走 `AtomicLevel.SetLevel`——实例不换、已取出
   的引用照常工作；其余任一字段变更走重建——kit 内部换实例（`Current` 跟随）、
   `zap.ReplaceGlobals` 同步全局、旧实例刷盘并即刻关句柄；动态级别跨重建
@@ -114,6 +121,7 @@ zapc:
 | `(*Log).ApplyConfig(Config) error`                                   | 热更入口（委托 kit.Apply）：级别即时 / 其余重建，收敛语义 |
 | `Watcher func(apply func(Config) error) (cancel func())`             | 配置订阅能力（与 `config.Watch` 结构化对齐），装配点注入 |
 | `WithWatch(Watcher) Option`                                          | `NewLogger` 可选项：注入订阅，取消并入 Close |
+| `WithCore(core zapcore.Core) Option`                                 | `New` / `NewLogger` 可选项：旁路 core 并入 tee（热更重建自动带上，nil 忽略），供跨组件组合（如 otelc 日志导出） |
 | `WithOnSwap(func(*zap.Logger)) Option`                               | `NewLogger` 可选项：实例换新回调（初始 + 每次热更重建），供 observ 桥等旁路绑定跟随 |
 | `NewLogger(cfg Config, ...Option) (LoggerKit, error)`                | 工厂：实例与热更状态收于 kit 内部，其他自建 zap 日志的组件复用 |
 | `LoggerKit` 方法：`Debug / Info / Warn / Error / DPanic / Check / Current / Apply / Rebuild / Close` | 调用面（Error 自带调用方栈；Check 级别禁用返回 nil）、当前实例（热更自动跟随）、智能热更入口、强制重建、取消订阅 + 释放句柄 |

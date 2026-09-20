@@ -15,8 +15,8 @@ import (
 // 能力与 endpoint 无关），endpoint 非空才追加以批量 SpanProcessor 包装
 // 的 OTLP 导出器（grpc/http 同地址，恒 insecure——本组件面向本地 /
 // 内网 collector，TLS 与凭据不在范围）。
-func newTracerProvider(cfg Config, o options) (*sdktrace.TracerProvider, error) {
-	tpOpts := []sdktrace.TracerProviderOption{sdktrace.WithResource(buildResource(o))}
+func newTracerProvider(cfg Config, res *resource.Resource) (*sdktrace.TracerProvider, error) {
+	tpOpts := []sdktrace.TracerProviderOption{sdktrace.WithResource(res)}
 	if cfg.Endpoint != "" {
 		exporter, err := newExporter(context.Background(), cfg)
 		if err != nil {
@@ -27,9 +27,9 @@ func newTracerProvider(cfg Config, o options) (*sdktrace.TracerProvider, error) 
 	return sdktrace.NewTracerProvider(tpOpts...), nil
 }
 
-// buildResource 构造 span 资源：仅携带服务标识属性（与 resource.Default
-// 的 schema URL 版本不同，不合并——合并即冲突）。采样策略不配置——
-// SDK 缺省 parent-based always-on。
+// buildResource 构造 span 与日志共用的 OTel 资源：仅携带服务标识属性
+// （与 resource.Default 的 schema URL 版本不同，不合并——合并即冲突）。
+// 采样策略不配置——SDK 缺省 parent-based always-on。
 func buildResource(o options) *resource.Resource {
 	var attrs []attribute.KeyValue
 	if o.service != "" {

@@ -99,7 +99,7 @@ main.go（3 行：internal/cmd.Execute()）
 │   │   ├── greeter/           # 约定完整示范样例（附录 A 指向此处）
 │   │   ├── nacos/             # nacos 双角色客户端（配置中心 Source + 服务注册）
 │   │   ├── zapc/              # zap 日志组件（级别热更即时生效，其余变更重建实例）
-│   │   ├── otelc/             # OTel 链路追踪组件（TracerProvider 装配 + 日志 trace 注入，附录 D）
+│   │   ├── otelc/             # OTel 可观测组件（tracing + 日志 trace 注入 + OTLP 日志导出，附录 D）
 │   │   └── promc/             # 指标与健康检查组件（prom registry + observ.Meter 适配，附录 D）
 │   └── config/
 │       ├── config.go          # Load / Tree / Raw / Decode / Dump
@@ -646,9 +646,9 @@ nacos 已内置：`internal/components/nacos`（cfg 配置中心 Source + reg �
 
 ## 附录 D：可观测组件参考
 
-otelc 与 promc 已内置：`internal/components/otelc`（OTel 链路追踪）、
-`internal/components/promc`（指标与健康检查），组件 README 含复制即用的
-接入代码、配置节与字段表。
+otelc 与 promc 已内置：`internal/components/otelc`（OTel tracing 与
+日志导出）、`internal/components/promc`（指标与健康检查），组件 README
+含复制即用的接入代码、配置节与字段表。
 
 接入要点（详见组件 README）：
 
@@ -661,10 +661,14 @@ otelc 与 promc 已内置：`internal/components/otelc`（OTel 链路追踪）�
   的调用自动携带 trace_id/span_id；构造期快照持有者保持旧面——
   **otelc 接在日志后端组件（如 zapc）之后接线**；zapc 热更重建会重绑
   observ 默认、使装饰脱落（重接线或重启即恢复）
+- otelc 的 OTLP 日志导出（logs_enabled）：经 otelzap 桥产出 zap core，
+  装配点以 `zapc.WithCore` 并进 tee——**依赖 zapc 后端**（缺省 slog
+  管线无此通路，维持零第三方依赖边界）；进入 zap 的每条日志出海，
+  热更重建自动带上，停机顺序顺刃（zapc 后停先 Sync、otelc 先接线后
+  flush）；出海流不受 zapc 级别门控，级别裁剪交 collector 侧
 - promc 的 Meter 即 §9 所述出口：`Meter()` 返回注册到私有 registry 的
   `observ.Meter`，装配点经组件 option 注入业务；在 prometheus 默认
   registry 注册的自定义 collector 不会出现在 `/metrics`
 - 跨组件健康检查由装配点胶水登记（`promc.RegisterCheck`），组件间零
   import；零登记时 `/health` 恒 healthy
-- OTel logs 信号（日志导出 OTLP）不在范围——与 slog 面的融合是独立
-  决策；模板无 HTTP server，链路传播中间件（otelhttp 等）同样不在范围
+- 模板无 HTTP server，链路传播中间件（otelhttp 等）不在范围

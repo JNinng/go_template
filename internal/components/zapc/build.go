@@ -12,9 +12,10 @@ import (
 )
 
 // buildLogger 组装实例：文件输出（Format 编码 + lumberjack 轮转）与控制台
-// 输出（固定人类可读编码）各自成 core，经 NewTee 并联、共享同一动态级别。
-// 返回的关闭函数在热更换新与失败路径上就地回收句柄。
-func buildLogger(cfg Config, lvl zapcore.LevelEnabler) (*zap.Logger, func(), error) {
+// 输出（固定人类可读编码）各自成 core，与 WithCore 注入的旁路 core 一起
+// 经 NewTee 并联、共享同一动态级别。返回的关闭函数在热更换新与失败路径
+// 上就地回收句柄（旁路 core 的生命周期归提供方，不经此回收）。
+func buildLogger(cfg Config, lvl zapcore.LevelEnabler, extra []zapcore.Core) (*zap.Logger, func(), error) {
 	var cores []zapcore.Core
 	var closers []func()
 	closeAll := func() {
@@ -47,6 +48,7 @@ func buildLogger(cfg Config, lvl zapcore.LevelEnabler) (*zap.Logger, func(), err
 	if cfg.LogToConsole {
 		cores = append(cores, zapcore.NewCore(newConsoleEncoder(), zapcore.Lock(os.Stdout), lvl))
 	}
+	cores = append(cores, extra...)
 	if len(cores) == 0 { // Validate 已挡，防御性兜底
 		return nil, nil, fmt.Errorf("zapc: no output destination")
 	}

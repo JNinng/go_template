@@ -9,6 +9,7 @@ zapc:
 otelc:
   endpoint: "" # OTLP collector 地址 host:port；空 = 不导出（trace_id 照常生成）
   protocol: grpc # grpc | http
+  logs_enabled: false # OTLP 日志导出（依赖 zapc 后端，经 LogCore 组合）；true 需 endpoint 非空
 promc:
   addr: ":9090"
   metrics_path: /metrics

@@ -29,11 +29,14 @@ type Log struct {
 
 // New 构造即校验并构建日志实例（打开 sink），并接管 observ 默认日志器
 // （zaplog 桥经 WithOnSwap 跟随热更重建自动重绑，模板自持的 log: 节由此
-// 被遮蔽）；失败即未启动，已开句柄就地关闭，无需调用方清理。
-func New(cfg Config) (*Log, error) {
-	kit, err := NewLogger(cfg, WithOnSwap(func(l *zap.Logger) {
-		observ.SetDefaultLogger(zaplog.New(l.WithOptions(zap.AddCallerSkip(1))))
-	}))
+// 被遮蔽）；opts 透传 kit（如 WithCore 并入 OTLP 日志导出 core）。失败即
+// 未启动，已开句柄就地关闭，无需调用方清理。
+func New(cfg Config, opts ...Option) (*Log, error) {
+	kit, err := NewLogger(cfg, append([]Option{
+		WithOnSwap(func(l *zap.Logger) {
+			observ.SetDefaultLogger(zaplog.New(l.WithOptions(zap.AddCallerSkip(1))))
+		}),
+	}, opts...)...)
 	if err != nil {
 		return nil, err
 	}

@@ -16,7 +16,10 @@ import (
 func setupBiz(t *config.Tree, r *runner.Runner, meta Meta) error {
 	// zapc 接管 observ 默认日志后端（模板自持的 log: 节被遮蔽，删掉本段
 	// 接线即回落 slog 链路）；配置非法或输出打不开 → 引导失败。
-	_, err := AddComponent(t, r, "zapc", zapc.Default(), zapc.New)
+	// New 为变参签名，经闭包适配 newFn；启用 otelc 日志导出时在此闭包内
+	// 加 zapc.WithCore(tr.LogCore())（tr 为先接线的 otelc 组件）。
+	_, err := AddComponent(t, r, "zapc", zapc.Default(),
+		func(c zapc.Config) (*zapc.Log, error) { return zapc.New(c) })
 	if err != nil {
 		return err
 	}

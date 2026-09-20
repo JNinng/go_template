@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"go.uber.org/zap"
@@ -291,5 +292,82 @@ func TestWithWatch_AutoApply(t *testing.T) {
 	kit.Close()
 	if !cancelled {
 		t.Fatal("Close must cancel the watch")
+	}
+}
+
+// recCore 记录型旁路 core（WithCore 测试用）。
+type recCore struct {
+	mu   sync.Mutex
+	msgs []string
+}
+
+func (c *recCore) Enabled(zapcore.Level) bool { return true }
+func (c *recCore) Sync() error                { return nil }
+func (c *recCore) Check(e zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+	return ce.AddCore(e, c)
+}
+func (c *recCore) Write(e zapcore.Entry, _ []zapcore.Field) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.msgs = append(c.msgs, e.Message)
+	return nil
+}
+func (c *recCore) With([]zapcore.Field) zapcore.Core { return c }
+
+func (c *recCore) messages() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.msgs...)
+}
+
+// 旁路 core 与自建 core 并联输出，且热更重建自动带上（构建参数而非
+// 一次性注入）。
+func TestWithCore_TeeAndRebuildSurvives(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.log")
+	cfg := testCfg(path, "info")
+	rec := &recCore{}
+	kit, err := NewLogger(cfg, WithCore(rec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(kit.Close)
+
+	kit.Info("before_rebuild")
+	wantContent(t, path, "before_rebuild") // 自建 core 正常落盘
+	if got := rec.messages(); len(got) != 1 || got[0] != "before_rebuild" {
+		t.Fatalf("extra core records = %v, want [before_rebuild]", got)
+	}
+
+	rebuilt := testCfg(path, "info")
+	rebuilt.Format = "json"
+	if err := kit.Apply(rebuilt); err != nil {
+		t.Fatal(err)
+	}
+	kit.Info("after_rebuild")
+	if got := rec.messages(); len(got) != 2 || got[1] != "after_rebuild" {
+		t.Fatalf("extra core must survive rebuild, records = %v", got)
+	}
+}
+
+// WithCore(nil) 忽略（logs_enabled 缺省的 otelc.LogCore() 即 nil）。
+func TestWithCore_NilIgnored(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.log")
+	if _, err := NewLogger(testCfg(path, "info"), WithCore(nil)); err != nil {
+		t.Fatalf("WithCore(nil) must be ignored: %v", err)
+	}
+}
+
+// 组件壳 New 的 opts 透传（zapc.New(cfg, WithCore(...)) 组合形态）。
+func TestNew_PassesOptionsThrough(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.log")
+	rec := &recCore{}
+	z, err := New(testCfg(path, "info"), WithCore(rec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = z.Stop(context.Background()) })
+	z.kit.Info("via_new")
+	if got := rec.messages(); len(got) != 1 || got[0] != "via_new" {
+		t.Fatalf("records = %v, want [via_new]", got)
 	}
 }

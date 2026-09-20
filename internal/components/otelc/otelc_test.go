@@ -15,6 +15,7 @@ import (
 	"github.com/jninng/observ"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/sdk/resource"
+	"go.uber.org/zap"
 )
 
 // New 装配三处全局（otel provider、slog 默认、observ 默认），测试须快照
@@ -50,8 +51,8 @@ func newLogBackend(t *testing.T) *bytes.Buffer {
 
 func TestDefault(t *testing.T) {
 	c := Default()
-	if c.Endpoint != "" || c.Protocol != "grpc" {
-		t.Fatalf("Default = %+v, want empty endpoint + grpc", c)
+	if c.Endpoint != "" || c.Protocol != "grpc" || c.LogsEnabled {
+		t.Fatalf("Default = %+v, want empty endpoint + grpc + logs off", c)
 	}
 }
 
@@ -65,6 +66,7 @@ func TestValidate(t *testing.T) {
 		{"http ok", Config{Protocol: "http"}, false},
 		{"empty protocol rejected", Config{Protocol: ""}, true},
 		{"bad protocol", Config{Protocol: "thrift"}, true},
+		{"logs without endpoint rejected", Config{Protocol: "grpc", LogsEnabled: true}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -181,7 +183,7 @@ func TestNew_UnreachableEndpointNoPanic(t *testing.T) {
 func TestConfigDecode(t *testing.T) {
 	dir := t.TempDir()
 	p := dir + "/config.yaml"
-	content := "otelc:\n  endpoint: \"127.0.0.1:14317\"\n  protocol: http\n"
+	content := "otelc:\n  endpoint: \"127.0.0.1:14317\"\n  protocol: http\n  logs_enabled: true\n"
 	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +195,56 @@ func TestConfigDecode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Endpoint != "127.0.0.1:14317" || got.Protocol != "http" {
+	if got.Endpoint != "127.0.0.1:14317" || got.Protocol != "http" || !got.LogsEnabled {
 		t.Fatalf("decoded = %+v", got)
+	}
+}
+
+// 日志导出信号：缺省关闭（LogCore 为 nil）；启用需 endpoint（无"本地
+// 生成"退化语义）；不可达 endpoint 下 core 可写、Stop 预算内返回。
+func TestNew_LogCoreDisabledByDefault(t *testing.T) {
+	restoreGlobals(t)
+	tr, err := New(Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tr.Stop(context.Background()) })
+	if tr.LogCore() != nil {
+		t.Fatal("LogCore must be nil when logs disabled")
+	}
+}
+
+func TestNew_LogsWithoutEndpointRejected(t *testing.T) {
+	restoreGlobals(t)
+	cfg := Default()
+	cfg.LogsEnabled = true
+	if _, err := New(cfg); err == nil {
+		t.Fatal("logs_enabled without endpoint must fail construction")
+	}
+}
+
+func TestNew_LogsUnreachableEndpointNoPanic(t *testing.T) {
+	restoreGlobals(t)
+	cfg := Default()
+	cfg.Endpoint = "127.0.0.1:1"
+	cfg.LogsEnabled = true
+	tr, err := New(cfg)
+	if err != nil {
+		t.Fatalf("lazy gRPC connection must not fail construction: %v", err)
+	}
+	core := tr.LogCore()
+	if core == nil {
+		t.Fatal("LogCore must be non-nil when logs enabled")
+	}
+	zap.New(core).Info("ship_me", zap.String("k", "v")) // 经 core 写入，不得 panic
+
+	// 导出器对拒连端点的 shutdown 重试会吃满预算，收紧到 2s 控制用例时长
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := tr.Stop(ctx); err != nil {
+		t.Fatalf("Stop with unreachable log exporter: %v", err)
+	}
+	if err := tr.Stop(context.Background()); err != nil {
+		t.Fatalf("second Stop must be idempotent: %v", err)
 	}
 }
