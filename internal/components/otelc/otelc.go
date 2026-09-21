@@ -61,9 +61,10 @@ func WithService(name, env string) Option {
 
 // New 构造即装配：创建 TracerProvider（endpoint 非空时挂 OTLP 导出器）
 // 并安装为全局，随后装饰日志面——此后动态读 DefaultLogger() 的日志输出
-// 在 ctx 携带有效 span 时自动附加 trace_id/span_id。logs_enabled 时另建
-// OTLP 日志导出管线（LogCore 组合方式见 README）。构造失败即未启动，
-// 无资源需要清理。
+// 在 ctx 携带有效 span 时自动附加 trace_id/span_id（装饰实现 Rebind
+// 协议，在日志后端接管与热更重建后保持有效）。logs_enabled 时另建
+// OTLP 日志导出管线（LogCore 组合方式见 README）。构造失败即未启动、
+// 已建 provider 就地回收；此前的全局指派随引导失败进程退出，无实际影响。
 func New(cfg Config, opts ...Option) (*Tracer, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -94,8 +95,9 @@ func New(cfg Config, opts ...Option) (*Tracer, error) {
 
 // LogCore 返回 OTLP 日志导出的 zap core（logs_enabled 时非 nil）。
 // 由装配点经 zapc.WithCore 并进 zap tee——依赖 zapc 后端；core 是 kit
-// 构建参数，热更重建自动带上。停机顺序：zapc 先接线（后停止，Sync 把
-// 在途记录推入 batch）、本组件先接线（后 flush），链路自然衔接。
+// 构建参数，热更重建自动带上。停机顺序：本组件先接线、zapc 后接线，
+// 逆序停机即 zapc 先停（Sync 只刷本地 sink——记录在写入时已同步入队
+// batch）、本组件后停 flush 出海，链路自然衔接。
 // 未启用时返回 nil；zapc.WithCore(nil) 会被忽略。
 func (t *Tracer) LogCore() zapcore.Core { return t.logCore }
 

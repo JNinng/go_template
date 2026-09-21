@@ -70,8 +70,10 @@ type kitState struct {
 }
 
 // LoggerKit 是日志构建产物与热更状态机的句柄：其他想自建 zap 日志的组件
-// 经 NewLogger 获得。自身不携带生命周期——全局安装等组件语义留在 Log。
-// 零值不可用（Apply/Rebuild 报错、Current 返回 nil、Close 无操作）。
+// 经 NewLogger 获得。自身不携带 Start/Stop 生命周期（启停装全局留在
+// Log）；但重建仍会同步 zap 全局（见 Rebuild）——独立 kit 的 Apply /
+// Rebuild 同样 ReplaceGlobals。零值不可用（Apply/Rebuild 报错、Current
+// 返回 nil、Close 无操作）。
 type LoggerKit struct{ st *kitState }
 
 // NewLogger 按 cfg 构建日志实例并打包 LoggerKit。实例、动态级别与热更

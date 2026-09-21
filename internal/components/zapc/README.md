@@ -65,7 +65,9 @@ zapc:
   方法；两条调用面的 caller 都定位到用户代码行，热更换新成对换
 - **observ 桥**：`New` 起接管 observ 默认日志器（zaplog 适配），经
   `WithOnSwap` 跟随热更重建自动重绑；不跟随的绑定会在重建后攥着已关闭的
-  旧实例——外部旁路设施一律走该钩子
+  旧实例——外部旁路设施一律走该钩子。接管尊重 Rebind 协议：默认日志器
+  实现 `Rebind(observ.Logger)`（如 otelc 链路装饰）时原地重绑而非整体
+  替换，装饰跨接管与重建存活
 - **WithCore 旁路 core**：注入的 core 与自建 core 经 `NewTee` 并联、
   共享构建路径——初始构建与每次热更重建都自动带上（构建参数而非一次性
   注入，无"重建后脱落"问题）；core 的启停与 flush 生命周期归提供方
@@ -85,7 +87,7 @@ zapc:
 - **全局安装**：`Start` 时 `zap.ReplaceGlobals`；重建路径同步全局（先于 Start
   的收敛热更也会装上，无害）
 - **停机**：`Stop` 幂等可重入——`Sync` 刷盘后释放文件句柄（控制台为空操作）；
-  错误均吞（stderr Sync 在个别平台报 EINVAL 噪声，不视作停机失败）
+  错误均吞（stdout Sync 在个别平台报 EINVAL 噪声，不视作停机失败）
 - **fail-fast**：`path` 打不开在构造 / 热更期即报错——目录就地创建
   （`MkdirAll`），文件先探针打开（lumberjack 惰性开文件，不探针则坏路径
   拖到首次写才暴露）；zap 内部写失败默认落 stderr
@@ -122,6 +124,6 @@ zapc:
 | `Watcher func(apply func(Config) error) (cancel func())`                                          | 配置订阅能力（与 `config.Watch` 结构化对齐），装配点注入                                         |
 | `WithWatch(Watcher) Option`                                                                       | `NewLogger` 可选项：注入订阅，取消并入 Close                                              |
 | `WithCore(core zapcore.Core) Option`                                                              | `New` / `NewLogger` 可选项：旁路 core 并入 tee（热更重建自动带上，nil 忽略），供跨组件组合（如 otelc 日志导出） |
-| `WithOnSwap(func(*zap.Logger)) Option`                                                            | `NewLogger` 可选项：实例换新回调（初始 + 每次热更重建），供 observ 桥等旁路绑定跟随                        |
+| `WithOnSwap(fn func(*zap.Logger)) Option`                                                            | `NewLogger` 可选项：实例换新回调（初始 + 每次热更重建），供 observ 桥等旁路绑定跟随；zapc.New 的接管即依赖内置回调，再传此选项会将其顶掉 |
 | `NewLogger(cfg Config, ...Option) (LoggerKit, error)`                                             | 工厂：实例与热更状态收于 kit 内部，其他自建 zap 日志的组件复用                                         |
 | `LoggerKit` 方法：`Debug / Info / Warn / Error / DPanic / Check / Current / Apply / Rebuild / Close` | 调用面（Error 自带调用方栈；Check 级别禁用返回 nil）、当前实例（热更自动跟随）、智能热更入口、强制重建、取消订阅 + 释放句柄      |

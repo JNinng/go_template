@@ -674,7 +674,8 @@ greeter:
   interval_seconds: 10
 ```
 
-装配见 §11.5；README 字段表热更列：`message` 生效、`interval_seconds` 生效（下个周期起）。
+装配见 §11.5；热更：`message` 生效、`interval_seconds` 生效（下个周期起，
+字段语义见 Config 注释）。
 
 ## 附录 B：nacos 接入参考
 
@@ -714,14 +715,15 @@ otelc 与 promc 已内置：`internal/components/otelc`（OTel tracing 与
   与日志关联照常工作，仅不导出；endpoint 非空才创建 OTLP 导出器
   （grpc/http，恒 insecure——TLS 与凭据不在范围）
 - otelc 的日志注入做在 observ 边界装饰层：动态读 `DefaultLogger()`
-  的调用自动携带 trace_id/span_id；构造期快照持有者保持旧面——
-  **otelc 接在日志后端组件（如 zapc）之后接线**；zapc 热更重建会重绑
-  observ 默认、使装饰脱落（重接线或重启即恢复）
+  的调用自动携带 trace_id/span_id；构造期快照持有者保持旧面。装饰实现
+  `Rebind(observ.Logger)` 协议——zapc 接管与热更重建时经协议原地重绑
+  后端，装饰持续有效，接线顺序不受限
 - otelc 的 OTLP 日志导出（logs_enabled）：经 otelzap 桥产出 zap core，
   装配点以 `zapc.WithCore` 并进 tee——**依赖 zapc 后端**（缺省 slog
   管线无此通路，维持零第三方依赖边界）；进入 zap 的每条日志出海，
-  热更重建自动带上，停机顺序顺刃（zapc 后停先 Sync、otelc 先接线后
-  flush）；出海流不受 zapc 级别门控，级别裁剪交 collector 侧
+  热更重建自动带上，停机顺序顺刃（zapc 后接线先停 Sync 本地 sink、
+  otelc 先接线后停 flush 出海——记录在写入时已同步入队 batch）；
+  出海流不受 zapc 级别门控，级别裁剪交 collector 侧
 - promc 的 Meter 即 §9 所述出口：`Meter()` 返回注册到私有 registry 的
   `observ.Meter`；`New` 同时把它安装为 observ 默认 Meter（v0.3.0
   `DefaultMeter`——其后构造的业务组件构造期回落，仪器绑定不追溯，故

@@ -8,14 +8,14 @@ import (
 
 // Config 是 zapc 配置节。全部字段为标量（可 == 比较）——热更按字段识别变更面。
 type Config struct {
-	Level        string `yaml:"level" mapstructure:"level"`                   // 日志级别：热更即时生效（仅调 AtomicLevel，实例不换）
-	Format       string `yaml:"format" mapstructure:"format"`                 // 日志格式 (console/json)：热更重建生效
-	Path         string `yaml:"path" mapstructure:"path"`                     // 日志文件路径，空则不写文件：热更重建生效
-	MaxSize      int    `yaml:"max_size" mapstructure:"max_size"`             // 单个日志文件最大大小 (MB)：热更重建生效
-	MaxAge       int    `yaml:"max_age" mapstructure:"max_age"`               // 日志文件保留天数：热更重建生效
-	MaxBackups   int    `yaml:"max_backups" mapstructure:"max_backups"`       // 保留的日志文件数量：热更重建生效
-	Compress     bool   `yaml:"compress" mapstructure:"compress"`             // 是否压缩历史日志：热更重建生效
-	LogToConsole bool   `yaml:"log_to_console" mapstructure:"log_to_console"` // 是否输出到控制台（stderr，固定非 json）：热更重建生效
+	Level        string `yaml:"level"`          // 日志级别：热更即时生效（仅调 AtomicLevel，实例不换）
+	Format       string `yaml:"format"`         // 日志格式 (console/json)：热更重建生效
+	Path         string `yaml:"path"`           // 日志文件路径，空则不写文件：热更重建生效
+	MaxSize      int    `yaml:"max_size"`       // 单个日志文件最大大小 (MB)：热更重建生效
+	MaxAge       int    `yaml:"max_age"`        // 日志文件保留天数：热更重建生效
+	MaxBackups   int    `yaml:"max_backups"`    // 保留的日志文件数量：热更重建生效
+	Compress     bool   `yaml:"compress"`       // 是否压缩历史日志：热更重建生效
+	LogToConsole bool   `yaml:"log_to_console"` // 是否输出到控制台（stdout，固定非 json）：热更重建生效
 }
 
 // Default 返回默认值基座：纯控制台输出；轮转参数在 Path 非空时生效。

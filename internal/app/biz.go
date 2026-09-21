@@ -46,8 +46,8 @@ func setupBiz(t *config.Tree, r *runner.Runner, meta Meta) error {
 	// 	return err
 	// }
 	//
-	// 内置可观测组件（详见各 README 与 DESIGN 附录 D）——otelc 接在日志
-	// 后端组件（如上面的 zapc）之后：
+	// 内置可观测组件（详见各 README 与 DESIGN 附录 D）——otelc 的链路
+	// 注入不限接线顺序（装饰经 Rebind 协议随日志后端换新自动重绑）：
 	//
 	// tr, err := AddComponent(t, r, "otelc", otelc.Default(),
 	// 	func(c otelc.Config) (*otelc.Tracer, error) {
