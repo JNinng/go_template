@@ -36,21 +36,30 @@ func WithLogger(l observ.Logger) Option {
 
 // Greeter 周期打印问候语。
 type Greeter struct {
-	mu     sync.Mutex    // 保护 cfg
-	cfg    Config        // 当前生效配置
-	logger observ.Logger // 日志面（构造于装配点，晚于后端设置，快照即正确后端）
-	stop   chan struct{} // 幂等关闸
-	done   chan struct{} // loop 回收信号
+	mu       sync.Mutex    // 保护 cfg
+	cfg      Config        // 当前生效配置
+	logger   observ.Logger // 日志面（构造于装配点，晚于后端设置，快照即正确后端）
+	stopOnce sync.Once     // 单次关闸（并发双 Stop 不会重复 close）
+	stop     chan struct{} // 关闸信号
+	done     chan struct{} // loop 回收信号
+}
+
+// validate 构造期与热更期共用的拒绝标准。
+func validate(cfg Config) error {
+	if cfg.Message == "" {
+		return fmt.Errorf("greeter: message must not be empty")
+	}
+	if cfg.IntervalSec <= 0 {
+		return fmt.Errorf("greeter: interval_seconds must be > 0, got %d", cfg.IntervalSec)
+	}
+	return nil
 }
 
 // New 构造即校验：配置不合法在此返回 error（fail-fast 点）。
 // 失败即未启动，无任何需要清理的资源。
 func New(cfg Config, opts ...Option) (*Greeter, error) {
-	if cfg.Message == "" {
-		return nil, fmt.Errorf("greeter: message must not be empty")
-	}
-	if cfg.IntervalSec <= 0 {
-		return nil, fmt.Errorf("greeter: interval_seconds must be > 0, got %d", cfg.IntervalSec)
+	if err := validate(cfg); err != nil {
+		return nil, err
 	}
 	g := &Greeter{
 		cfg:    cfg,
@@ -92,12 +101,8 @@ func (g *Greeter) loop(ctx context.Context) {
 
 // Stop 幂等可重入；ctx 携带预算，超时自行截断。goroutine 归组件所有。
 func (g *Greeter) Stop(ctx context.Context) error {
-	select { // 幂等关闸
-	case <-g.stop:
-	default:
-		close(g.stop)
-	}
-	select { // 等回收，尊重预算
+	g.stopOnce.Do(func() { close(g.stop) }) // 幂等关闸（并发安全）
+	select {                                // 等回收，尊重预算
 	case <-g.done:
 		return nil
 	case <-ctx.Done():
@@ -106,10 +111,11 @@ func (g *Greeter) Stop(ctx context.Context) error {
 }
 
 // ApplyConfig 收敛语义：相同值必须无操作。可能在 Start 之前被调用
-// （收敛首调），实现仅更新状态、不依赖运行时资源。
+// （收敛首调），实现仅更新状态、不依赖运行时资源；拒绝标准与构造期
+// 共用（validate）。
 func (g *Greeter) ApplyConfig(cfg Config) error {
-	if cfg.IntervalSec <= 0 {
-		return fmt.Errorf("greeter: reject non-positive interval_seconds")
+	if err := validate(cfg); err != nil {
+		return err
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()

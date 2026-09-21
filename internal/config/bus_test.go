@@ -2,6 +2,7 @@ package config
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -137,26 +138,27 @@ func (r *watchRec) snapshot() []demoCfg {
 func TestWatch_ApplyErrorAndPanicAreIsolated(t *testing.T) {
 	tr := newWatchTree(t, "demo")
 
-	errCount := 0
+	// 回调在订阅 goroutine 执行、断言在测试 goroutine，计数走原子
+	var errCount atomic.Int32
 	cancelErr := Watch(tr, "demo", demoCfg{}, func(demoCfg) error {
-		errCount++
+		errCount.Add(1)
 		return errBoom
 	})
 	defer cancelErr()
 
-	panicCount := 0
+	var panicCount atomic.Int32
 	cancelPanic := Watch(tr, "demo", demoCfg{}, func(demoCfg) error {
-		panicCount++
+		panicCount.Add(1)
 		panic("apply panicked")
 	})
 	defer cancelPanic()
 
 	time.Sleep(300 * time.Millisecond) // 等收敛首调各执行一次
-	if errCount != 1 {
-		t.Fatalf("apply error callback ran %d times, want 1", errCount)
+	if got := errCount.Load(); got != 1 {
+		t.Fatalf("apply error callback ran %d times, want 1", got)
 	}
-	if panicCount != 1 {
-		t.Fatalf("panicking callback ran %d times, want 1 (recovered)", panicCount)
+	if got := panicCount.Load(); got != 1 {
+		t.Fatalf("panicking callback ran %d times, want 1 (recovered)", got)
 	}
 
 	// 进程未死：后续变更仍投递

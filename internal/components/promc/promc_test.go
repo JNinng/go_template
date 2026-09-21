@@ -3,6 +3,7 @@ package promc
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -68,14 +69,16 @@ func TestStartStop_Endpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /metrics: %v", err)
 	}
-	body := make([]byte, 1<<16)
-	n, _ := resp.Body.Read(body)
+	body, err := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
+	if err != nil {
+		t.Fatalf("read /metrics body: %v", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("/metrics status = %d", resp.StatusCode)
 	}
-	if !strings.Contains(string(body[:n]), "go_goroutines") {
-		t.Errorf("/metrics body missing Go runtime metrics:\n%s", body[:n])
+	if !strings.Contains(string(body), "go_goroutines") {
+		t.Errorf("/metrics body missing Go runtime metrics:\n%s", body)
 	}
 
 	resp, err = client.Get(base + "/health")
@@ -202,9 +205,11 @@ func TestMeterExposition(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	body := make([]byte, 1<<16)
-	n, _ := resp.Body.Read(body)
-	s := string(body[:n])
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
 	for _, want := range []string{"promc_test_events_total 3", "promc_test_depth 7", "promc_test_latency_seconds"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("exposition missing %q", want)

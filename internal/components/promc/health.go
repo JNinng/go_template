@@ -50,6 +50,7 @@ func (h *Handler) Register(name string, fn CheckFunc) {
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet) // RFC 9110：405 须携带 Allow
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}

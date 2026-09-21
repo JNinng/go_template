@@ -26,10 +26,11 @@ func buildLogger(cfg Config, lvl zapcore.LevelEnabler, extra []zapcore.Core) (*z
 	if cfg.Path != "" {
 		// 建目录 + 探针打开：目录就地创建；lumberjack 惰性开文件，坏路径会
 		// 拖到首次写才暴露，先开一次把打不开提前到构造期（fail-fast）。
+		// 权限对齐 lumberjack 自建文件（0o600），探针先建不放大权限。
 		if err := os.MkdirAll(filepath.Dir(cfg.Path), 0o755); err != nil {
 			return nil, nil, fmt.Errorf("zapc: create log dir %q: %w", filepath.Dir(cfg.Path), err)
 		}
-		f, err := os.OpenFile(filepath.Clean(cfg.Path), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+		f, err := os.OpenFile(filepath.Clean(cfg.Path), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
 		if err != nil {
 			return nil, nil, fmt.Errorf("zapc: open output %q: %w", cfg.Path, err)
 		}
