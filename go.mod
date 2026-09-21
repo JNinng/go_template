@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/jninng/observ v0.2.0
+	github.com/jninng/observ v0.3.0
 	github.com/jninng/observ/adapters/prom v0.1.1
 	github.com/jninng/observ/adapters/zaplog v0.2.0
 	github.com/nacos-group/nacos-sdk-go/v2 v2.3.5

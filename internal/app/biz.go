@@ -60,7 +60,10 @@ func setupBiz(t *config.Tree, r *runner.Runner, meta Meta) error {
 	// if err != nil {
 	// 	return err
 	// }
-	// _ = pm.Meter() // 经组件 option 注入业务（WithMeter）；跨组件健康检查用 pm.RegisterCheck
+	// New 即安装 observ 默认 Meter（DefaultMeter）：其后构造的组件未注入
+	// WithMeter 时构造期回落本出口，免逐组件穿线——仪器绑定构造时刻，
+	// 需要回落的业务组件须排在 promc 之后（显式 WithMeter 注入仍可覆盖）；
+	// 跨组件健康检查用 pm.RegisterCheck
 	_ = meta // 需要应用元数据的组件（如注册组件的 service name）从这里取
 	return nil
 }

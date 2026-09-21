@@ -4,6 +4,11 @@
 // （observ.Meter）与导出面（client_golang 私有 registry）由此闭环。
 // 包名取 prometheus 之意拼 c（对齐 zapc 拼法，约定见库 README）。
 //
+// New 即安装 observ 默认 Meter（DefaultMeter，与 zapc 接管默认日志
+// 同款）：其后构造的业务组件未注入 Meter 时构造期回落本组件的出口，
+// 免逐组件穿线。仪器绑定构造时刻——本组件须先于业务组件接线；显式
+// WithMeter 注入仍可覆盖默认。
+//
 // 健康检查为命名项聚合：全部通过 200，任一失败 503；零登记恒 healthy。
 // 跨组件检查由装配点胶水登记（RegisterCheck），组件间互不 import。
 //
@@ -42,7 +47,10 @@ type Prom struct {
 }
 
 // New 构造即校验：私有 registry 预挂 Go 运行时与进程 collectors，
-// /metrics 与 /health 同 mux。失败即未启动，无资源需要清理。
+// /metrics 与 /health 同 mux；并把 meter 安装为 observ 默认（构造期
+// 快照语义——其后构造的组件回落本出口，已建仪表不迁移、不追溯，故
+// 本组件须先于业务组件接线；多实例构造后者胜，Stop 不回退）。失败即
+// 未启动、未安装默认，无资源需要清理。
 func New(cfg Config) (*Prom, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -57,11 +65,13 @@ func New(cfg Config) (*Prom, error) {
 	mux := http.NewServeMux()
 	mux.Handle(cfg.MetricsPath, metricsH)
 	mux.Handle(cfg.HealthPath, health)
+	meter := promAdapter.New(reg)
+	observ.SetDefaultMeter(meter)
 	return &Prom{
 		cfg:      cfg,
 		srv:      &http.Server{Addr: cfg.Addr, Handler: mux},
 		registry: reg,
-		meter:    promAdapter.New(reg),
+		meter:    meter,
 		health:   health,
 		metricsH: metricsH,
 	}, nil

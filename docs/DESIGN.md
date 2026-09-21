@@ -363,9 +363,11 @@ observ.SetDefaultLogger(zaplog.New(z))   // 模板与组件全部换向（observ
 业务代码直调 zap，不经任何桥接层；模板与组件经 zaplog 适配器直抵 zap，零改动（动态读与装配期换向都指向新后端）。level 热更由
 zap 动态级别承接（如 `zapcore.NewAtomicLevel`）。
 
-**Meter**：骨架自身零装配代码——组件经 observ.Meter 埋点时缺省 Noop、零开销；内置组件库的 **promc**（附录 D）提供开箱即用的出口：私有
-Prometheus registry + `/metrics` `/health` 端点，并以 `adapters/prom` 实现 `observ.Meter` 供装配点经组件 option
-注入（与日志同一注入规范）。不接线 promc 的项目维持 Noop 缺省，模板行为不变。
+**Meter**：骨架自身零装配代码——组件经 observ.Meter 埋点时缺省 Noop、零开销；observ v0.3.0 起 Meter 与 Logger 同款包级默认
+（`DefaultMeter`：原子替换、初始 Noop、构造期快照）。内置组件库的 **promc**（附录 D）提供开箱即用的出口：私有
+Prometheus registry + `/metrics` `/health` 端点，以 `adapters/prom` 实现 `observ.Meter`，接线即安装为包级默认——
+其后构造的业务组件未注入 `WithMeter` 时构造期回落（与日志同一注入规范；显式注入覆盖）。不接线 promc 的项目维持
+Noop 缺省，模板行为不变。
 
 **链路关联**：内置组件库的 **otelc**（附录 D）在装配后自动为日志注入链路属性——ctx 携带有效 span 的日志调用附加 `trace_id` /
 `span_id`（注入做在 observ 边界的装饰层，不接管任何日志全局；无 span 时零属性差异）。该能力依赖 observ v0.2.0 的 ctx
@@ -552,9 +554,10 @@ func (c *Component) Client() *someclient.Client     // 可选：类型化访问�
 
 ### 11.4 并发纪律
 
-原生组件以 observ 接入规范为纪律基线：option 注入（`WithLogger` / `WithMeter`，缺省 Noop / 默认快照；**在 setupSources
-构造的源角色组件例外——日志动态读而非快照**，其构造早于日志装配）；回调在调用方 goroutine 同步执行且必须快速返回；回调 panic
-由组件 recover；热路径只做指标埋点，日志仅用于低频生命周期事件。第三方组件的并发行为由其自管，不在约定范围内。
+原生组件以 observ 接入规范为纪律基线：option 注入（`WithLogger` / `WithMeter` 未注入时构造期回落 observ 包级默认
+`DefaultLogger` / `DefaultMeter`——快照语义，未安装即 Noop；**在 setupSources 构造的源角色组件例外——日志动态读
+而非快照**，其构造早于日志装配；Meter 侧的回落依赖出口组件先接线，见 §9）；回调在调用方 goroutine 同步执行且必须快速返回；回调
+panic 由组件 recover；热路径只做指标埋点，日志仅用于低频生命周期事件。第三方组件的并发行为由其自管，不在约定范围内。
 
 ### 11.5 装配形态（模板侧）
 
@@ -720,8 +723,10 @@ otelc 与 promc 已内置：`internal/components/otelc`（OTel tracing 与
   热更重建自动带上，停机顺序顺刃（zapc 后停先 Sync、otelc 先接线后
   flush）；出海流不受 zapc 级别门控，级别裁剪交 collector 侧
 - promc 的 Meter 即 §9 所述出口：`Meter()` 返回注册到私有 registry 的
-  `observ.Meter`，装配点经组件 option 注入业务；在 prometheus 默认
-  registry 注册的自定义 collector 不会出现在 `/metrics`
+  `observ.Meter`；`New` 同时把它安装为 observ 默认 Meter（v0.3.0
+  `DefaultMeter`——其后构造的业务组件构造期回落，仪器绑定不追溯，故
+  promc 须先于业务组件接线；显式 `WithMeter` 注入覆盖）；在 prometheus
+  默认 registry 注册的自定义 collector 不会出现在 `/metrics`
 - 跨组件健康检查由装配点胶水登记（`promc.RegisterCheck`），组件间零
   import；零登记时 `/health` 恒 healthy
 - 模板无 HTTP server，链路传播中间件（otelhttp 等）不在范围

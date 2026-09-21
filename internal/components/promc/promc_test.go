@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jninng/observ"
 )
 
 func TestDefault(t *testing.T) {
@@ -166,6 +168,20 @@ func TestHealthAggregation(t *testing.T) {
 
 	if w3 := do(http.MethodPost); w3.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("POST status = %d, want 405", w3.Code)
+	}
+}
+
+// New 即安装 observ 默认 Meter；Stop 不回退（进程收尾语义）。
+func TestNewInstallsDefaultMeter(t *testing.T) {
+	old := observ.SetDefaultMeter(observ.NoopMeter)
+	defer observ.SetDefaultMeter(old)
+
+	p, err := New(Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observ.DefaultMeter() != p.Meter() {
+		t.Fatal("New must install the component meter as observ default")
 	}
 }
 

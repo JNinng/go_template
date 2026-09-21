@@ -125,8 +125,8 @@ github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af h1:pmfjZENx5imkbgOkpRUYLnmbU7UEFbjtDA2hxJ1ichM=
 github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af/go.mod h1:Nht3zPeWKUH0NzdCt2Blrr5ys8VGpn0CEB0cQHVjt7k=
-github.com/jninng/observ v0.2.0 h1:jCKuVL9TZjNbrUyw2BFnEcTwhRqg5Cty1XwFHRRj+rE=
-github.com/jninng/observ v0.2.0/go.mod h1:5u+Yqv7IO8btQTrxUBQ0VqnRO+YrFmjNrwneaUKwtGI=
+github.com/jninng/observ v0.3.0 h1:lF7Nf5sGVgCdhel06+cpgRO803N0TBJ+NKlBi0D5b5c=
+github.com/jninng/observ v0.3.0/go.mod h1:5u+Yqv7IO8btQTrxUBQ0VqnRO+YrFmjNrwneaUKwtGI=
 github.com/jninng/observ/adapters/prom v0.1.1 h1:xkt/OEQnWMLiCiZt5SAvkzzQqrVdpC5arkui5TErCzw=
 github.com/jninng/observ/adapters/prom v0.1.1/go.mod h1:fM1QxxTNtdz3dh8T74JAnY2zCXiVvcwdMWwyBj+ppuY=
 github.com/jninng/observ/adapters/zaplog v0.2.0 h1:NDmeCh4VrFDJCsYV/GIVgnUHW73k8eOm4TkXLQ2LRG4=

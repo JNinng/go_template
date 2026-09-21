@@ -4,7 +4,9 @@
 与进程 collectors）经独立 HTTP Server 暴露 `/metrics` 与 `/health`，并以
 `adapters/prom` 实现 **observ.Meter**——埋点面（observ.Meter）与导出面
 （client_golang 私有 registry）由此闭环，兑现 DESIGN §9 预留的"prom
-适配器在装配点注入"路线。不接线时组件埋点维持 Noop 缺省，模板行为不变。
+适配器在装配点注入"路线。接线（New）即安装 observ 默认 Meter：其后构造
+的业务组件未注入 Meter 时构造期回落本出口，免逐组件穿线。不接线时组件
+埋点维持 Noop 缺省，模板行为不变。
 
 **第三方依赖**：`github.com/prometheus/client_golang` +
 `github.com/jninng/observ/adapters/prom` + `github.com/jninng/observ`。
@@ -17,10 +19,11 @@
 ```go
 pm, err := AddComponent(t, r, "promc", promc.Default(), promc.New)
 if err != nil {
-	return err // 配置非法在此报错（退出码 1）
+    return err // 配置非法在此报错（退出码 1）
 }
-// Meter 经组件 option 注入业务（与日志同一注入规范）：
-// svc, err := NewBiz(biz.Default(), biz.WithMeter(pm.Meter()))
+// New 即安装 observ 默认 Meter：其后构造的业务组件未注入 WithMeter 时
+// 构造期自动回落本出口（免逐组件穿线，promc 须写在业务组件之前）；
+// 显式注入仍可覆盖：svc, err := NewBiz(biz.Default(), biz.WithMeter(pm.Meter()))
 // 跨组件健康检查由装配点胶水登记（组件间零依赖）：
 // pm.RegisterCheck("nacos", nc.Check)
 ```
@@ -55,6 +58,10 @@ mux.Handle("/health", pm.HealthHandler())
 - **Meter 语义**：即 `adapters/prom`——`New*` 即注册（构造期调用，禁止
   热路径）；非法指标名注册期 panic；同名重复 New* panic（契约两结局）；
   buckets 传入即拷贝
+- **默认 Meter**：`New` 即 `observ.SetDefaultMeter`（v0.3.0）——其后构造
+  的组件未注入 Meter 时构造期回落本出口（快照语义，已建仪表不迁移、
+  不追溯）；显式 `WithMeter` 注入覆盖默认；多实例构造后者胜，Stop 不
+  回退；因此本组件须先于需要回落的业务组件接线
 - **健康检查**：命名项聚合，全部通过 200、任一失败 503（JSON，details
   含各项状态与错误消息）；零登记恒 healthy；仅接受 GET。跨组件检查由
   装配点胶水经 `RegisterCheck` 登记，组件间互不 import
@@ -82,7 +89,7 @@ mux.Handle("/health", pm.HealthHandler())
 |-----------------------------------------------------|---------------------------------------------|
 | `Default() Config`                                  | 默认值基座（与 `config.Decode` 成对使用）               |
 | `(Config).Validate() error`                         | 校验取值（非空 / `/` 起头 / 两路径相异）                   |
-| `New(cfg Config) (*Prom, error)`                    | 构造 registry 与路由（无副作用、不监听）；失败无资源需清理          |
+| `New(cfg Config) (*Prom, error)`                    | 构造 registry 与路由（无副作用、不监听）并安装 observ 默认 Meter；失败无资源需清理 |
 | `(*Prom).Start(ctx) error`                          | 同步监听（绑定错误 fail-fast）后起服务 goroutine          |
 | `(*Prom).Stop(ctx) error`                           | 预算内优雅关停；幂等，失败降级警告                           |
 | `(*Prom).Meter() observ.Meter`                      | 注册到私有 registry 的 observ.Meter（装配点注入业务）      |
