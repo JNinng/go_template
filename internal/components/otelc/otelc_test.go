@@ -5,11 +5,13 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"go_template/internal/components/zapc"
 	"go_template/internal/config"
 
 	"github.com/jninng/observ"
@@ -220,6 +222,95 @@ func TestNew_LogsWithoutEndpointRejected(t *testing.T) {
 	cfg.LogsEnabled = true
 	if _, err := New(cfg); err == nil {
 		t.Fatal("logs_enabled without endpoint must fail construction")
+	}
+}
+
+// Rebind 协议（zapc 接管/热更重建的存活基础）：重复安装不叠装饰；
+// 装饰经 Rebind 换绑后端后链路注入照常、旧后端不再接收。
+func TestLogTrace_RebindProtocol(t *testing.T) {
+	restoreGlobals(t)
+	buf1 := newLogBackend(t)
+	tr, err := New(Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tr.Stop(context.Background()) })
+
+	installLogTrace() // 幂等：默认已是装饰，不得叠加
+
+	ctx, span := otel.Tracer("otelc-test").Start(context.Background(), "op")
+	defer span.End()
+	observ.DefaultLogger().Log(ctx, slog.LevelInfo, "before_rebind")
+	wantTrace := span.SpanContext().TraceID().String()
+	if got := strings.Count(buf1.String(), wantTrace); got != 1 {
+		t.Fatalf("single decoration expected, trace_id hits = %d:\n%s", got, buf1.String())
+	}
+
+	// zapc 接管路径：结构化探测 Rebind 协议并原地换绑
+	var buf2 bytes.Buffer
+	backend := observ.NewSlogLogger(slog.New(slog.NewTextHandler(&buf2, nil)))
+	cur, ok := observ.DefaultLogger().(interface{ Rebind(observ.Logger) })
+	if !ok {
+		t.Fatal("decorated default must implement the Rebind protocol")
+	}
+	cur.Rebind(backend)
+
+	observ.DefaultLogger().Log(ctx, slog.LevelInfo, "after_rebind")
+	if !strings.Contains(buf1.String(), "before_rebind") || strings.Contains(buf1.String(), "after_rebind") {
+		t.Fatalf("old backend must not receive post-rebind logs:\n%s", buf1.String())
+	}
+	if line := buf2.String(); !strings.Contains(line, "after_rebind") || !strings.Contains(line, wantTrace) {
+		t.Fatalf("new backend must receive trace-injected logs: %q", line)
+	}
+}
+
+// 组合回归：otelc 先接线、zapc 后接管（logs_enabled 配方的接线顺序）——
+// 链路注入经 Rebind 协议在接管与热更重建后均保持有效。
+func TestLogTrace_SurvivesZapcTakeoverAndRebuild(t *testing.T) {
+	restoreGlobals(t)
+	newLogBackend(t)
+
+	tr, err := New(Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tr.Stop(context.Background()) })
+
+	cfg := zapc.Default()
+	cfg.Path = filepath.Join(t.TempDir(), "zapc.log")
+	cfg.LogToConsole = false
+	z, err := zapc.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = z.Stop(context.Background()) })
+
+	logInSpan := func(msg string) {
+		ctx, span := otel.Tracer("otelc-test").Start(context.Background(), "op")
+		defer span.End()
+		observ.DefaultLogger().Log(ctx, slog.LevelInfo, msg)
+	}
+	logInSpan("after_takeover")
+
+	rebuilt := cfg
+	rebuilt.Format = "json"
+	if err := z.ApplyConfig(rebuilt); err != nil {
+		t.Fatal(err)
+	}
+	logInSpan("after_rebuild")
+
+	b, err := os.ReadFile(cfg.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	for _, want := range []string{"after_takeover", "after_rebuild"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in zapc output:\n%s", want, s)
+		}
+	}
+	if n := strings.Count(s, "trace_id"); n != 2 {
+		t.Fatalf("both lines must carry trace attrs, trace_id hits = %d:\n%s", n, s)
 	}
 }
 

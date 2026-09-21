@@ -2,11 +2,14 @@ package zapc
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/jninng/observ"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -369,5 +372,56 @@ func TestNew_PassesOptionsThrough(t *testing.T) {
 	z.kit.Info("via_new")
 	if got := rec.messages(); len(got) != 1 || got[0] != "via_new" {
 		t.Fatalf("records = %v, want [via_new]", got)
+	}
+}
+
+// rebindDec 是实现 Rebind 协议的装饰桩：只记录重绑次数（zapc 接管的
+// 装饰器路径验证用）。
+type rebindDec struct {
+	mu   sync.Mutex
+	hits int
+}
+
+func (d *rebindDec) Enabled(context.Context, slog.Level) bool              { return false }
+func (d *rebindDec) Log(context.Context, slog.Level, string, ...slog.Attr) {}
+func (d *rebindDec) Rebind(observ.Logger) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.hits++
+}
+
+func (d *rebindDec) rebinds() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.hits
+}
+
+// 接管尊重 Rebind 协议：默认日志器是装饰器时不整体替换，而是原地重绑
+// （初始接管与每次热更重建各一次）——otelc 链路注入由此在 zapc 接管与
+// 热更后存活。
+func TestNew_TakeoverRebindsDecorator(t *testing.T) {
+	old := observ.SetDefaultLogger(observ.NoopLogger)
+	defer observ.SetDefaultLogger(old)
+	dec := &rebindDec{}
+	observ.SetDefaultLogger(dec)
+
+	path := filepath.Join(t.TempDir(), "takeover.log")
+	cfg := testCfg(path, "info")
+	z, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = z.Stop(context.Background()) })
+
+	if observ.DefaultLogger() != observ.Logger(dec) {
+		t.Fatal("takeover must keep the Rebind-capable default in place")
+	}
+	next := cfg
+	next.Format = "json"
+	if err := z.ApplyConfig(next); err != nil {
+		t.Fatal(err)
+	}
+	if got := dec.rebinds(); got != 2 {
+		t.Fatalf("Rebind calls = %d, want 2 (takeover + rebuild)", got)
 	}
 }

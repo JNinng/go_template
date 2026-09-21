@@ -29,12 +29,22 @@ type Log struct {
 
 // New 构造即校验并构建日志实例（打开 sink），并接管 observ 默认日志器
 // （zaplog 桥经 WithOnSwap 跟随热更重建自动重绑，模板自持的 log: 节由此
-// 被遮蔽）；opts 透传 kit（如 WithCore 并入 OTLP 日志导出 core）。失败即
-// 未启动，已开句柄就地关闭，无需调用方清理。
+// 被遮蔽）；opts 透传 kit（如 WithCore 并入 OTLP 日志导出 core）。注意：
+// 接管依赖内置的 WithOnSwap 回调，opts 再传自定义 WithOnSwap 会将其顶掉
+// （Option 后者胜）、接管即失效。失败即未启动，已开句柄就地关闭，无需
+// 调用方清理。
 func New(cfg Config, opts ...Option) (*Log, error) {
 	kit, err := NewLogger(cfg, append([]Option{
 		WithOnSwap(func(l *zap.Logger) {
-			observ.SetDefaultLogger(zaplog.New(l.WithOptions(zap.AddCallerSkip(1))))
+			bridge := zaplog.New(l.WithOptions(zap.AddCallerSkip(1)))
+			// 接管尊重已装装饰器：默认日志器实现 Rebind 协议（如 otelc
+			// 的链路注入装饰）时原地重绑后端，装饰在接管与热更重建后
+			// 保持有效；未实现者维持整体替换
+			if cur, ok := observ.DefaultLogger().(interface{ Rebind(observ.Logger) }); ok {
+				cur.Rebind(bridge)
+				return
+			}
+			observ.SetDefaultLogger(bridge)
 		}),
 	}, opts...)...)
 	if err != nil {
