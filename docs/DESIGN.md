@@ -117,6 +117,7 @@ main.go（3 行：internal/cmd.Execute()）
 │       └── bus.go             # 节级订阅与串行分发
 ├── pkg/
 │   ├── version/               # 构建期版本元数据（ldflags 注入：version/commit/date/build_time/go_version）
+│   ├── safe/                  # 日志安全整形：脱敏掩码（保长/折叠）与截断（展示/体积），纯函数
 │   └── constant/              # 跨包原子常量（时间布局等）
 ├── configs/config.yaml        # app: / log: / biz: 与组件节示例（zapc、otelc、promc 等）
 ├── CONTEXT.md                 # 术语表（单一事实源）
