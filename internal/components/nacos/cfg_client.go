@@ -61,7 +61,7 @@ func (c *CfgClient) Name() string { return "nacos" }
 // （全量快照语义下最终一致）。
 func (c *CfgClient) Start(ctx context.Context, push func(map[string]any)) error {
 	if !c.cfg.Enabled {
-		c.opt.logInfo("nacos_config_disabled")
+		c.opt.current().Log(context.Background(), slog.LevelInfo, "nacos_config_disabled")
 		push(map[string]any{})
 		<-ctx.Done()
 		return nil
@@ -72,8 +72,9 @@ func (c *CfgClient) Start(ctx context.Context, push func(map[string]any)) error 
 		if c.cfg.Unreachable == "disable" {
 			// 显式降级：双通道告警后以纯本地配置继续（空快照解锁 Attach），
 			// 热更停摆——阻塞至取消，绝不把降级当失败上抛
-			c.opt.logPolicyWarn("nacos_config_unreachable_disabled",
-				slog.String("addr", c.cfg.Addr), slog.Any("error", err))
+			attrs := []slog.Attr{slog.String("addr", c.cfg.Addr), slog.Any("error", err)}
+			c.opt.current().Log(context.Background(), slog.LevelWarn, "nacos_config_unreachable_disabled", attrs...)
+			stderrWarn("nacos_config_unreachable_disabled", attrs...)
 			push(map[string]any{})
 			<-ctx.Done()
 			return nil
@@ -119,7 +120,7 @@ func (c *CfgClient) connect(push func(map[string]any)) (map[string]any, config_c
 			snap, err := parseContent(data)
 			if err != nil {
 				// 数据异常（非技术故障）：告警丢弃，维持上一有效快照
-				c.opt.logWarn("nacos_config_parse_failed",
+				c.opt.current().Log(context.Background(), slog.LevelWarn, "nacos_config_parse_failed",
 					slog.String("data_id", dataId), slog.Any("error", err))
 				return
 			}

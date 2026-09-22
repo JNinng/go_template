@@ -1,8 +1,12 @@
 package config
 
 import (
+	"context"
 	"log/slog"
+	"runtime/debug"
 	"sync"
+
+	"github.com/jninng/observ"
 )
 
 // 热更总线契约（docs/DESIGN.md §8.6）：串行有序、逐订阅投递、收敛语义、
@@ -74,11 +78,13 @@ func (t *Tree) notifyAll() {
 // apply 返回 error → 记日志整体丢弃本次、保持上一有效值，进程不死。
 func Watch[T any](t *Tree, section string, base T, apply func(T) error) (cancel func()) {
 	s := newSubscription()
+	// 投递路径不在业务 span 内：日志恒 Background，且每次动态读默认
+	// logger（config 构造早于日志装配，快照会永久固定在 Noop）。
 	deliver := func() {
 		cfg, err := decodeSection(t, section, base)
 		if err != nil {
 			// 校验类异常（未知键/类型不符）：Warn，丢弃本次、保持上一有效值
-			logWarn("config_watch_decode_error",
+			observ.DefaultLogger().Log(context.Background(), slog.LevelWarn, "config_watch_decode_error",
 				slog.String("section", section), slog.Any("error", err))
 			return
 		}
@@ -86,13 +92,14 @@ func Watch[T any](t *Tree, section string, base T, apply func(T) error) (cancel 
 			defer func() {
 				if r := recover(); r != nil {
 					// panic 属意外缺陷：Error 兜底记录（含 panic 值与堆栈），进程不死
-					logError("config_watch_apply_panicked",
-						slog.String("section", section), slog.Any("panic_value", r))
+					observ.DefaultLogger().Log(context.Background(), slog.LevelError, "config_watch_apply_panicked",
+						slog.String("section", section), slog.Any("panic_value", r),
+						slog.String("stack", string(debug.Stack())))
 				}
 			}()
 			if err := apply(cfg); err != nil {
 				// apply 拒绝新值属组件侧校验：Warn，保持上一有效值
-				logWarn("config_watch_apply_failed",
+				observ.DefaultLogger().Log(context.Background(), slog.LevelWarn, "config_watch_apply_failed",
 					slog.String("section", section), slog.Any("error", err))
 			}
 		}()

@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"runtime/debug"
 
 	"go_template/internal/config"
 	"go_template/internal/runner"
@@ -71,12 +70,6 @@ func setupLogging(t *config.Tree, r *runner.Runner) error {
 		return nil
 	})
 	return nil
-}
-
-// logError 记技术故障（Error）：自动附加堆栈，只在最底层打一次。
-func logError(msg string, attrs ...slog.Attr) {
-	attrs = append(attrs, slog.String("stack", string(debug.Stack())))
-	observ.DefaultLogger().Log(context.Background(), slog.LevelError, msg, attrs...)
 }
 
 // parseLevel 把级别字符串解析为 slog.Level（严格四档 + slog 偏移语法）。

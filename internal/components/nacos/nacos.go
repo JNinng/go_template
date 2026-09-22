@@ -13,7 +13,6 @@
 package nacos
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"net"
@@ -101,18 +100,9 @@ func newOptions(opts []Option) options {
 	return o
 }
 
-// logWarn 记策略降级 / 数据异常类告警（Warn：显式决策或旁路角色，无需即时告警）。
-// SDK 回调无业务 ctx，恒 Background（nacos 生命周期事件不在业务 span 内）。
-func (o options) logWarn(msg string, attrs ...slog.Attr) {
-	o.current().Log(context.Background(), slog.LevelWarn, msg, attrs...)
-}
-
-// logInfo 记生命周期关键节点（Info）。
-func (o options) logInfo(msg string, attrs ...slog.Attr) {
-	o.current().Log(context.Background(), slog.LevelInfo, msg, attrs...)
-}
-
 // current 返回生效的日志面：显式注入优先，否则动态读默认（换后端立即生效）。
+// 日志调用点一律 context.Background()——SDK 回调与生命周期事件不在业务
+// span 内，且 .Log 必须在最终调用点直接发起（隔层封装会失真 caller 帧）。
 func (o options) current() observ.Logger {
 	if o.logger != nil {
 		return o.logger
@@ -120,11 +110,10 @@ func (o options) current() observ.Logger {
 	return observ.DefaultLogger()
 }
 
-// logPolicyWarn 记不可达策略降级告警：observ 动态读 + 直写 stderr 双通道。
-// 降级事件发生在引导窗口（setupSources 早于日志装配）时 observ 可能仍是
-// Noop，stderr 保证高信号运维事实永不丢失；日志就绪后最多重复一行，可接受。
-func (o options) logPolicyWarn(msg string, attrs ...slog.Attr) {
-	o.current().Log(context.Background(), slog.LevelWarn, msg, attrs...)
+// stderrWarn 是策略降级告警的第二通道（直写 stderr）：降级事件可能发生在
+// 引导窗口（setupSources 早于日志装配），observ 那时可能仍是 Noop，stderr
+// 保证高信号运维事实永不丢失；日志就绪后最多重复一行，可接受。
+func stderrWarn(msg string, attrs ...slog.Attr) {
 	fmt.Fprintf(os.Stderr, "[WARN] nacos: %s %v\n", msg, attrs)
 }
 
