@@ -1,15 +1,19 @@
 # otelc — 内置组件（OTel 可观测组件）
 
-把 OpenTelemetry 装配为生命周期组件：全局 TracerProvider + OTLP 导出
-（gRPC/HTTP，恒 insecure）+ **日志链路注入**（ctx 携带有效 span 的日志
-调用自动附加 `trace_id` / `span_id`，经 observ 边界装饰，不接管任何日志
-全局）+ 可选 **OTLP 日志导出**（`logs_enabled`，经 otelzap 桥以 zap core
-形态由装配点组合进 zapc 的 tee）。包名拼 `c` 与
-go.opentelemetry.io/otel 消解同名（约定见库 README）。
+把 OpenTelemetry 装配为生命周期组件：全局 TracerProvider + 全局 W3C
+传播器 + OTLP 导出（gRPC/HTTP，恒 insecure）+ **日志链路注入**（ctx
+携带有效 span 的日志调用自动附加 `trace_id` / `span_id`，携带
+`request_id`（pkg/ctxkey，httpserver 注入）时附加 `request_id`，经
+observ 边界装饰，不接管任何日志全局）+ 可选 **OTLP 日志导出**
+（`logs_enabled`，经 otelzap 桥以 zap core 形态由装配点组合进 zapc 的
+tee）。包名拼 `c` 与 go.opentelemetry.io/otel 消解同名（约定见库 README）。
 
-**承重行为**：`endpoint` 为空也安装 TracerProvider——trace_id 生成与日志
-关联照常工作，仅不导出；`endpoint` 非空才创建导出器发 span 到 OTLP
-collector（本地开发用 Grafana Alloy / otel-collector 皆可）。
+**承重行为**：`endpoint` 为空也安装 TracerProvider——trace_id 生成与
+日志关联照常工作，仅不导出；`endpoint` 非空才创建导出器发 span 到 OTLP
+collector（本地开发用 Grafana Alloy / otel-collector 皆可）。同时安装
+全局 W3C 传播器（TraceContext + Baggage）——otel ≥1.33 的全局传播器
+缺省 noop，不显式安装则 traceparent 提取（服务间串联，httpserver 的
+链路中间件依赖）静默失效。
 
 **第三方依赖**：`go.opentelemetry.io/otel` + `sdk` + `sdk/log` + `trace` +
 `exporters/otlp/otlptrace`（grpc/http）+ `exporters/otlp/otlplog`（grpc/http）+
@@ -66,14 +70,21 @@ otelc:
 - **恒建 provider**：endpoint 为空也安装全局 TracerProvider（trace_id 生成
   能力与导出无关）；endpoint 非空才挂批量 SpanProcessor + OTLP 导出器
 - **日志链路注入**：构造即以装饰型 observ.Logger 包一层——`Log` 前从 ctx
-  读有效 span，附加 `trace_id`/`span_id` 后委托原实现；此后动态读
+  读有效 span，附加 `trace_id`/`span_id` 后委托原实现；ctx 携带
+  `request_id`（pkg/ctxkey）时附加 `request_id`（业务日志与链路日志由
+  此对齐，键归中立 pkg 定义——组件间零 import 不破）。此后动态读
   `DefaultLogger()` 的调用全部自动携带，无 span 时零属性差异。构造期快照
   持有者（早于本组件拿到 logger 的组件）保持旧面。装饰实现
   `Rebind(observ.Logger)` 协议：zapc 接管与热更重建时经协议原地重绑
   后端，装饰持续有效、接线顺序不受限
+- **全局 W3C 传播器**：New 即 `otel.SetTextMapPropagator`（TraceContext +
+  Baggage 复合）——traceparent 注入与提取的全局基线，httpserver 的
+  链路中间件（otelhttp）与业务出站调用共用
 - **资源标识不经 yaml**：`WithService(name, env, version)` 设 `service.name`、
-  `deployment.environment.name` 与 `service.version`（OTel semantic
-  conventions），装配点从应用元数据与构建元数据（`pkg/version`）传入；
+  `deployment.environment.name` 与 `service.version`；
+  `WithInstanceID(id)` 设 `service.instance.id`（与响应头
+  X-Instance-IDs、日志定位到同一实例，值取 `httpserver.InstanceID` 的
+  产物）。装配点从应用元数据与构建元数据（`pkg/version`）传入；
   缺省不设置（span 可用，聚合侧无法区分服务）
 - **导出恒 insecure**：面向本地/内网 collector，TLS、凭据、headers、采样
   配置均不在范围（采样走 SDK 缺省 parent-based always-on）
@@ -92,8 +103,8 @@ otelc:
 - **并发纪律**：装饰层只做属性追加后委托，无共享可变状态；provider 与
   exporter 由 otel SDK 保证并发安全
 - **不热更**：启动期配置，变更重启生效（不实现 ApplyConfig）
-- **范围外**：链路传播中间件（otelhttp 等，模板无 HTTP server）、
-  TLS/凭据/headers/采样配置（恒 insecure，SDK 缺省采样）
+- **范围外**：TLS/凭据/headers/采样配置（恒 insecure，SDK 缺省采样）；
+  链路中间件本体在 httpserver（otelhttp，可信端点判定见其 README）
 
 ## 字段速查
 
@@ -109,8 +120,9 @@ otelc:
 |-----------------------------------------------|----------------------------------------------------------------|
 | `Default() Config`                            | 默认值基座（与 `config.Decode` 成对使用）                                  |
 | `(Config).Validate() error`                   | 校验取值（protocol 仅 grpc/http）                                     |
-| `New(cfg Config, ...Option) (*Tracer, error)` | 构造即装配全局 provider + 装饰日志面（logs_enabled 时另建日志导出管线）；失败即未启动，无资源需清理 |
+| `New(cfg Config, ...Option) (*Tracer, error)` | 构造即装配全局 provider + W3C 传播器 + 装饰日志面（logs_enabled 时另建日志导出管线）；失败即未启动，无资源需清理 |
 | `WithService(name, env, ver string) Option`   | 设置资源标识（service.name / deployment.environment.name / service.version），span 与日志共用 |
+| `WithInstanceID(id string) Option`            | 设置 `service.instance.id`（与 X-Instance-IDs 响应头同值；装配点传 `httpserver.InstanceID(meta.Name)`） |
 | `(*Tracer).LogCore() zapcore.Core`            | OTLP 日志导出的 zap core（未启用时 nil）；装配点经 `zapc.WithCore` 组合进 tee     |
 | `(*Tracer).Start(ctx) error`                  | 输出启动信号（含 endpoint / export 状态）后立即返回                            |
 | `(*Tracer).Stop(ctx) error`                   | 预算内 flush span；幂等，失败降级警告                                       |

@@ -109,7 +109,8 @@ main.go（3 行：internal/cmd.Execute()）
 │   │   ├── nacos/             # nacos 双角色客户端（配置中心 Source + 服务注册）
 │   │   ├── zapc/              # zap 日志组件（级别热更即时生效，其余变更重建实例）
 │   │   ├── otelc/             # OTel 可观测组件（tracing + 日志 trace 注入 + OTLP 日志导出，附录 D）
-│   │   └── promc/             # 指标与健康检查组件（prom registry + observ.Meter 适配，附录 D）
+│   │   ├── promc/             # 指标与健康检查组件（prom registry + observ.Meter 适配，附录 D）
+│   │   └── httpserver/        # 业务 HTTP Server 组件（可观测中间件链 + 单端口收编，附录 D）
 │   └── config/
 │       ├── config.go          # Load / Tree / Raw / Decode / Dump
 │       ├── source.go          # Source 接口 + 文件监听 + 合并管线
@@ -118,8 +119,9 @@ main.go（3 行：internal/cmd.Execute()）
 ├── pkg/
 │   ├── version/               # 构建期版本元数据（ldflags 注入：version/commit/date/build_time/go_version）
 │   ├── safe/                  # 日志安全整形：脱敏掩码（保长/折叠）与截断（展示/体积），纯函数
+│   ├── ctxkey/                # 跨组件共享的 context 键（request_id：httpserver 注入、otelc 日志装饰消费）
 │   └── constant/              # 跨包原子常量（时间布局等）
-├── configs/config.yaml        # app: / log: / biz: 与组件节示例（zapc、otelc、promc 等）
+├── configs/config.yaml        # app: / log: / biz: 与组件节示例（zapc、otelc、promc、httpserver 等）
 ├── CONTEXT.md                 # 术语表（单一事实源）
 └── docs/                      # DESIGN.md / ASSETS.md / adr/
 ```
@@ -409,8 +411,8 @@ import (
 )
 
 const (
-    stepTimeout = 5 * time.Second  // 单组件停止预算
-    totalBudget = 10 * time.Second // 停机总预算
+    defaultStepTimeout  = 15 * time.Second // 单组件停止预算缺省
+    defaultTotalBudget  = 30 * time.Second // 停机总预算缺省
 )
 
 // entry 是一个已注册组件的启停对。
@@ -422,8 +424,10 @@ type entry struct {
 
 // Runner 按注册顺序启动、逆序停止所辖组件；信号与停机预算由其统一管理。
 type Runner struct {
-    entries []entry // 注册序即启动序，逆序即停止序
-    started int     // 已成功启动的组件数（StopAll 的停止范围）
+    entries      []entry       // 注册序即启动序，逆序即停止序
+    started      int           // 已成功启动的组件数（StopAll 的停止范围）
+    stepTimeout  time.Duration // 单组件停止预算
+    totalBudget  time.Duration // 停机总预算
 }
 
 // New 创建空运行器。
@@ -498,7 +502,9 @@ func (r *Runner) Run() error {
 - **Start 语义**：起 goroutine 后立即返回；返回 nil 即"可用"。
 - **Start 无预算**：停机预算只承诺 Stop；Start 阻塞卡死以第二个信号强杀为唯一逃生门——有意接受的边界。
 - **Stop 语义**：必须幂等（可安全重入）；ctx 携带单步预算，超时由组件自行截断返回。
-- **预算**：单步 5s、总 10s，**常量写死**（需要不同预算 = 改代码，刻意不设配置面）。
+- **预算**：单步 15s、总 30s 缺省（为 httpserver 的真实排空时间放宽）；
+  `SetBudgets` 可调（Run 之前），仍刻意不设 yaml 配置面——预算是
+  部署形态属性，由装配层表达。
 - **信号**：SIGINT / SIGTERM → cancel root ctx；第二个信号立即 `os.Exit(1)`；SIGQUIT 保留 Go 默认栈转储。
 - **无容器职责**：不做依赖校验、不做启用开关分发、不做配置分发——那些问题在装配点以显式代码解决。
 
@@ -703,15 +709,16 @@ nacos 已内置：`internal/components/nacos`（cfg 配置中心 Source + reg �
 
 - 新模板仓库文档四件：`docs/DESIGN.md`（本文）、`docs/ASSETS.md`（资产清单）、`CONTEXT.md`（术语表，从本文 §3 拆出随代码演进维护）、
   `docs/adr/`（架构决策记录）；另附仓库门面 `README.md`（quickstart）与 `LICENSE`（MIT）。
-- **ADR 判据**（三者齐备才立）：难以逆转、缺上下文会令未来读者困惑、真实权衡的结果。本设计配套 ADR 四份：ADR-0001
+- **ADR 判据**（三者齐备才立）：难以逆转、缺上下文会令未来读者困惑、真实权衡的结果。本设计配套 ADR 五份：ADR-0001
   组件零依赖与装配点胶水、ADR-0002 复制式消费、ADR-0003 日志单一 observ 调用面、ADR-0004 可观测组件进内置库与 observ ctx
-  演进。设计文档本身维持定稿直叙、无中间决策；ADR 仅作决策背景补充，**不是实现依赖**（不读 ADR 亦可凭本文完成实现）。
+  演进、ADR-0005 httpserver 可观测聚合（单端口收编、接口化强绑定与 Link 语义）。设计文档本身维持定稿直叙、无中间决策；ADR 仅作决策背景补充，**不是实现依赖**（不读 ADR 亦可凭本文完成实现）。
 
 ## 附录 D：可观测组件参考
 
-otelc 与 promc 已内置：`internal/components/otelc`（OTel tracing 与
-日志导出）、`internal/components/promc`（指标与健康检查），组件 README
-含复制即用的接入代码、配置节与字段表。
+otelc、promc 与 httpserver 已内置：`internal/components/otelc`（OTel
+tracing 与日志导出）、`internal/components/promc`（指标与健康检查）、
+`internal/components/httpserver`（业务 HTTP Server 与可观测中间件链），
+组件 README 含复制即用的接入代码、配置节与字段表。
 
 接入要点（详见组件 README）：
 
@@ -737,4 +744,18 @@ otelc 与 promc 已内置：`internal/components/otelc`（OTel tracing 与
   默认 registry 注册的自定义 collector 不会出现在 `/metrics`
 - 跨组件健康检查由装配点胶水登记（`promc.RegisterCheck`），组件间零
   import；零登记时 `/health` 恒 healthy
-- 模板无 HTTP server，链路传播中间件（otelhttp 等）不在范围
+- promc 的暴露形态缺省是 handler 注入：`addr` 为空（缺省）不自起独立
+  server，`/metrics` `/health` 由 httpserver 经 `WithProm` 挂进业务
+  路由（单端口收编，ADR-0005）；需要独立端口显式配置 `promc.addr`
+- httpserver 的中间件链（Recovery → CORS → 访问日志/指标 → otelhttp
+  tracing → RequestID → 请求体上限）强绑定三件可观测设施：访问日志
+  直调 `zap.L()`、tracing 走 otel 全局、指标注册 promc 私有 registry
+  （`observ.Meter` 无 label 维度，故直连 prometheus 原生 API）；
+  停机三步走（readiness 摘流 → 关 keep-alive → Shutdown 排空），
+  热路径跳过清单不产日志与指标
+- otelc 同时安装全局 W3C 传播器（TraceContext + Baggage）——otel ≥1.33
+  全局传播器缺省 noop，不显式安装则 traceparent 提取静默失效
+- httpserver 的链路信任判定：可信来源（RemoteAddr ∈ trusted_proxies）
+  继承 traceparent 为父 span；不可信来源新建 root span 并把外部
+  traceparent 转为 Link（otelhttp PublicEndpoint 原生语义）——外部
+  伪造链路无法污染内部拓扑

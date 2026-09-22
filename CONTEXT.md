@@ -51,15 +51,35 @@ _Avoid_: 容器（不做依赖校验、配置分发、启用开关）
 
 **链路追踪组件（otelc）**：
 内置组件库的 OTel 追踪组件（`internal/components/otelc`）：全局
-TracerProvider 装配 + OTLP 导出 + 日志链路注入（trace_id/span_id，
-经 observ 边界装饰）。
-_Avoid_: APM（指商业监控产品）、span 中间件（模板无 HTTP server）
+TracerProvider 装配 + 全局 W3C 传播器 + OTLP 导出 + 日志链路注入
+（trace_id/span_id/request_id，经 observ 边界装饰）。
+_Avoid_: APM（指商业监控产品）
 
 **指标与健康组件（promc）**：
 内置组件库的指标健康组件（`internal/components/promc`）：私有
-Prometheus registry + `/metrics` `/health` 端点 + `observ.Meter` 适配。
+Prometheus registry + `/metrics` `/health` handler（缺省由 httpserver
+单端口挂载，配置 addr 才自起独立 server）+ `observ.Meter` 适配。
 _Avoid_: 监控面板（指 Grafana 类消费侧）、默认 registry（promc 用私有
 registry，不经 `prometheus.DefaultRegisterer` 的指标不暴露）
+
+**HTTP 服务组件（httpserver）**：
+内置组件库的业务 HTTP Server 组件（`internal/components/httpserver`）：
+标准库 ServeMux 路由 + 可观测中间件链（访问日志/指标/tracing/
+RequestID/Recovery/CORS/请求体上限），单端口收编 promc 端点，停机
+三步走（readiness 摘流 → 关 keep-alive → 排空）。
+_Avoid_: Web 框架（路由是标准库 ServeMux，组件不是框架）、网关（不做路由转发）
+
+**实例 ID（instance ID）**：
+服务实例的标识（`{服务名}:{HOSTNAME}`，INSTANCE_ID 环境变量可整体
+覆盖）：响应头 `X-Instance-IDs`、OTel resource 属性 `service.instance.id`
+与启动日志共用同一值（`httpserver.InstanceID` 是单一事实源）。
+_Avoid_: pod 名（HOSTNAME 只是来源之一，实例 ID 还包含服务名）
+
+**排空（drain）**：
+停机时摘除流量并让在途请求完整返回的窗口：readiness 翻 503（负载
+均衡摘除）+ 关 keep-alive（`Connection: close`）+ Shutdown 排空
+（drain_aware 配置控制，缺省开）。
+_Avoid_: 立即断连（drain 的对立面；在途请求须服务完）
 
 ## 配置
 
