@@ -51,7 +51,8 @@ func setupBiz(t *config.Tree, r *runner.Runner, meta Meta) error {
 	//
 	// tr, err := AddComponent(t, r, "otelc", otelc.Default(),
 	// 	func(c otelc.Config) (*otelc.Tracer, error) {
-	// 		return otelc.New(c, otelc.WithService(meta.Name, meta.Env)) // 资源标识从元数据传入
+	// 		// 资源标识：name/env 从元数据、version 从 pkg/version 传入
+	// 		return otelc.New(c, otelc.WithService(meta.Name, meta.Env, version.Version))
 	// 	})
 	// if err != nil {
 	// 	return err

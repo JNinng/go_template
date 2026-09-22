@@ -49,14 +49,16 @@ type Option func(*options)
 type options struct {
 	service string // resource 属性 service.name
 	env     string // resource 属性 deployment.environment.name
+	version string // resource 属性 service.version
 }
 
-// WithService 设置 span 与日志的 OTel 资源标识（service.name 与
-// deployment.environment.name，对齐 OTel semantic conventions）。
-// 模板装配点从应用元数据传入：WithService(meta.Name, meta.Env)。
-// 缺省不设置——记录仍可用，但聚合侧无法区分服务归属。
-func WithService(name, env string) Option {
-	return func(o *options) { o.service, o.env = name, env }
+// WithService 设置 span 与日志的 OTel 资源标识（service.name /
+// deployment.environment.name / service.version，对齐 OTel semantic
+// conventions）。模板装配点从应用元数据与构建元数据传入：
+// WithService(meta.Name, meta.Env, version.Version)。缺省不设置——
+// 记录仍可用，但聚合侧无法区分服务归属。
+func WithService(name, env, ver string) Option {
+	return func(o *options) { o.service, o.env, o.version = name, env, ver }
 }
 
 // New 构造即装配：创建 TracerProvider（endpoint 非空时挂 OTLP 导出器）

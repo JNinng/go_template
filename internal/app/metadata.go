@@ -6,16 +6,10 @@ import (
 	"log/slog"
 
 	"go_template/internal/config"
+	"go_template/pkg/version"
 
 	"github.com/jninng/observ"
 )
-
-// Version 由构建期注入：
-//
-//	go build -ldflags "-X '<module>/internal/app.Version=v1.2.3'" ./cmd/app
-//
-// Version 不进配置文件。
-var Version = "dev"
 
 // Meta 是模板自持的 app 节定义（应用元数据是纯数据，由装配点显式传参消费）。
 type Meta struct {
@@ -51,12 +45,12 @@ func loadMeta(t *config.Tree, envInput string) (Meta, string, error) {
 type announcer struct {
 	appName string // 应用名（loadMeta 解析，必填非空）
 	appEnv  string // 生效环境（--env / APP_ENV / 声明值的决议结果）
-	version string // 构建期注入的版本快照
+	version string // 构建期注入的版本快照（pkg/version）
 }
 
 // newAnnouncer 构造启动行组件（无副作用，不连接）。
 func newAnnouncer(meta Meta, effEnv string) *announcer {
-	return &announcer{appName: meta.Name, appEnv: effEnv, version: Version}
+	return &announcer{appName: meta.Name, appEnv: effEnv, version: version.Version}
 }
 
 // Start 输出启动行后立即返回；消息与字段 snake_case（§9 日志规范）。

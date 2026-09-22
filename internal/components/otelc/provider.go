@@ -38,6 +38,9 @@ func buildResource(o options) *resource.Resource {
 	if o.env != "" {
 		attrs = append(attrs, semconv.DeploymentEnvironmentName(o.env))
 	}
+	if o.version != "" {
+		attrs = append(attrs, semconv.ServiceVersion(o.version))
+	}
 	if len(attrs) == 0 {
 		return resource.Default()
 	}

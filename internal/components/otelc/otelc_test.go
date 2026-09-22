@@ -141,10 +141,10 @@ func TestNew_LogTraceInjected(t *testing.T) {
 	}
 }
 
-// WithService 资源标识：span 的 resource 携带 service.name 与环境声明。
+// WithService 资源标识：span 的 resource 携带 service.name、环境声明与版本。
 func TestNew_WithServiceResource(t *testing.T) {
 	restoreGlobals(t)
-	tr, err := New(Default(), WithService("demo-app", "dev"))
+	tr, err := New(Default(), WithService("demo-app", "dev", "v1.2.3"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestNew_WithServiceResource(t *testing.T) {
 		t.Fatal("sdk span must expose Resource")
 	}
 	s := ro.Resource().String()
-	for _, want := range []string{"service.name=demo-app", "deployment.environment.name=dev"} {
+	for _, want := range []string{"service.name=demo-app", "deployment.environment.name=dev", "service.version=v1.2.3"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("resource %q missing %q", s, want)
 		}

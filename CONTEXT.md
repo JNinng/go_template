@@ -45,7 +45,7 @@ _Avoid_: 到 `Run` 时序里找业务挂载点
 _Avoid_: 容器（不做依赖校验、配置分发、启用开关）
 
 **应用元数据**：
-`app:` 节（name/env）+ 构建期注入的 Version。
+`app:` 节（name/env）+ 构建期注入的版本元数据（`pkg/version` 五字段）。
 
 ## 可观测
 

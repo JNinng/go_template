@@ -64,7 +64,7 @@ main.go（3 行：internal/cmd.Execute()）
                             先于日志装配——log 节与元数据初值因此含远程层（format/output
                             等非热更字段方能由远程治理）；引导自配只来自本地层（§8.2）
          3. setupLogging    设 observ 默认日志后端 + log 节 level 热更订阅
-         4. meta            解析应用元数据（name / 生效 env / Version），注册 announce 启动行组件
+         4. meta            解析应用元数据（name / 生效 env），注册 announce 启动行组件
                              （首个启动者，§7）
          5. setupBiz(t, r, meta) 装配业务组件（业务入口 biz.go）：解码配置节 → 构造 →
                              注册生命周期 →（可选）热更订阅；
@@ -93,7 +93,7 @@ main.go（3 行：internal/cmd.Execute()）
 │   ├── app/
 │   │   ├── app.go             # Run()：config → sources → logging → meta → biz → runner 时序
 │   │   ├── logging.go         # 日志装配：observ 默认后端 + level 热更（换 zap 的唯一改动点）
-│   │   ├── metadata.go        # app 节 Meta + Version + announce 启动行组件（首个启动者）
+│   │   ├── metadata.go        # app 节 Meta + announce 启动行组件（首个启动者；版本自 pkg/version）
 │   │   ├── biz.go             # 业务装配入口：业务组件接线（内置占位业务 biz.Hello，业务逻辑定位点）
 │   │   ├── sources.go         # 远程源接入 setupSources（模板内为空实现）
 │   │   └── component.go       # AddComponent 装配辅助：解码 → 构造 → 注册 → 可选热更
@@ -101,7 +101,7 @@ main.go（3 行：internal/cmd.Execute()）
 │   │   └── runner.go          # 运行器：顺序启动、逆序停止、信号、停机预算（§10）
 │   ├── cmd/
 │   │   ├── root.go            # run（默认命令）+ --config / --env / --log-level
-│   │   └── version.go         # version
+│   │   └── version.go         # version 子命令（打印 pkg/version 五字段）
 │   ├── biz/
 │   │   └── hello.go           # 占位业务组件（启动输出一句日志；项目替换为真实业务）
 │   ├── components/            # 内置组件库（组件菜单，依赖不设限；取舍规则见 §12 与库内 README）
@@ -115,6 +115,9 @@ main.go（3 行：internal/cmd.Execute()）
 │       ├── source.go          # Source 接口 + 文件监听 + 合并管线
 │       ├── overlay.go         # from_env 收集与静态覆盖
 │       └── bus.go             # 节级订阅与串行分发
+├── pkg/
+│   ├── version/               # 构建期版本元数据（ldflags 注入：version/commit/date/build_time/go_version）
+│   └── constant/              # 跨包原子常量（时间布局等）
 ├── configs/config.yaml        # app: / log: / biz: 与组件节示例（zapc、otelc、promc 等）
 ├── CONTEXT.md                 # 术语表（单一事实源）
 └── docs/                      # DESIGN.md / ASSETS.md / adr/
@@ -142,7 +145,7 @@ CLI 库为 cobra。命令集两个，刻意收敛：
 | 命令                    | 行为                                                                  |
 |-----------------------|---------------------------------------------------------------------|
 | `run`（root 默认，无参数即执行） | 完整启动时序（§4），阻塞至信号，返回值决定退出码                                           |
-| `version`             | 打印 `var Version`（构建期 ldflags 注入，缺省 `dev`）；仅版本字符串一行输出，不带 name/env 前缀 |
+| `version`             | 打印 `pkg/version` 五字段（构建期 ldflags 注入，见 §7）；逐行对齐输出，不带 name/env 前缀        |
 
 **run 的 flag**（影响配置的唯一入口）：
 
@@ -172,11 +175,13 @@ CLI 库为 cobra。命令集两个，刻意收敛：
     - `env`（string，可选）：运行环境**声明值**，供下游消费（启动日志、可观测资源、注册分组）。
 - **生效 env 的解析顺序**：`--env` > `APP_ENV` > `app.env` 声明值 > 空。前两者同时是**唯一**有权选择多环境文件的输入（避免"
   配置里改 env 换文件"的循环依赖）。
-- **Version**：`internal/app` 包级 `var Version = "dev"`，构建期注入：
+- **版本元数据**：`pkg/version` 五字段（version / commit / date / build_time / go_version），
+  构建期 ldflags 注入（date 为源码提交日期、build_time 为构建时刻；go_version 随二进制
+  自述无需注入），不进配置文件。消费方：version 子命令、启动行 `app_version`、OTel 资源
+  `service.version`：
   ```
-  go build -ldflags "-X '<module>/internal/app.Version=v1.2.3'" ./cmd/app
+  go build -ldflags "-X '<module>/pkg/version.Version=v1.2.3'" ./cmd/app
   ```
-  Version 不进配置文件。
 - **启动行**：由 **announce 组件**承载（首个注册、首个启动，§4/§10）：
   `observ.DefaultLogger().Log(ctx, slog.LevelInfo, "service_started", slog.String("app_name", …), slog.String("app_env", …), slog.String("app_version", …))`
   （消息与字段 snake_case，见 §9 日志规范），模板运行的最小可见信号。
@@ -709,8 +714,8 @@ otelc 与 promc 已内置：`internal/components/otelc`（OTel tracing 与
 
 接入要点（详见组件 README）：
 
-- 两组件均不热更（启动期配置），资源标识（service.name / env）不经
-  yaml——装配点从应用元数据传入（`WithService(meta.Name, effEnv)`）
+- 两组件均不热更（启动期配置），资源标识（service.name / env / version）不经
+  yaml——装配点从应用元数据与构建元数据传入（`WithService(meta.Name, effEnv, version.Version)`）
 - otelc 的承重行为：endpoint 为空也安装 TracerProvider，trace_id 生成
   与日志关联照常工作，仅不导出；endpoint 非空才创建 OTLP 导出器
   （grpc/http，恒 insecure——TLS 与凭据不在范围）

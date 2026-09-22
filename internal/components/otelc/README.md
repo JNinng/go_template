@@ -26,7 +26,7 @@ logs_enabled 时须先于 zapc 接线取 LogCore，见下）：
 ```go
 tr, err := AddComponent(t, r, "otelc", otelc.Default(),
 	func(c otelc.Config) (*otelc.Tracer, error) {
-		return otelc.New(c, otelc.WithService(meta.Name, meta.Env)) // 资源标识从应用元数据传入
+		return otelc.New(c, otelc.WithService(meta.Name, meta.Env, version.Version)) // 资源标识：应用元数据 + 构建元数据
 	})
 if err != nil {
 	return err // 配置非法在此报错（退出码 1）
@@ -71,9 +71,10 @@ otelc:
   持有者（早于本组件拿到 logger 的组件）保持旧面。装饰实现
   `Rebind(observ.Logger)` 协议：zapc 接管与热更重建时经协议原地重绑
   后端，装饰持续有效、接线顺序不受限
-- **资源标识不经 yaml**：`WithService(name, env)` 设 `service.name` 与
-  `deployment.environment.name`（OTel semantic conventions），装配点从
-  应用元数据传入；缺省不设置（span 可用，聚合侧无法区分服务）
+- **资源标识不经 yaml**：`WithService(name, env, version)` 设 `service.name`、
+  `deployment.environment.name` 与 `service.version`（OTel semantic
+  conventions），装配点从应用元数据与构建元数据（`pkg/version`）传入；
+  缺省不设置（span 可用，聚合侧无法区分服务）
 - **导出恒 insecure**：面向本地/内网 collector，TLS、凭据、headers、采样
   配置均不在范围（采样走 SDK 缺省 parent-based always-on）
 - **OTLP 日志导出（logs_enabled）**：与 tracing 共用 endpoint/protocol，
@@ -109,7 +110,7 @@ otelc:
 | `Default() Config`                            | 默认值基座（与 `config.Decode` 成对使用）                                  |
 | `(Config).Validate() error`                   | 校验取值（protocol 仅 grpc/http）                                     |
 | `New(cfg Config, ...Option) (*Tracer, error)` | 构造即装配全局 provider + 装饰日志面（logs_enabled 时另建日志导出管线）；失败即未启动，无资源需清理 |
-| `WithService(name, env string) Option`        | 设置资源标识（service.name / deployment.environment.name），span 与日志共用  |
+| `WithService(name, env, ver string) Option`   | 设置资源标识（service.name / deployment.environment.name / service.version），span 与日志共用 |
 | `(*Tracer).LogCore() zapcore.Core`            | OTLP 日志导出的 zap core（未启用时 nil）；装配点经 `zapc.WithCore` 组合进 tee     |
 | `(*Tracer).Start(ctx) error`                  | 输出启动信号（含 endpoint / export 状态）后立即返回                            |
 | `(*Tracer).Stop(ctx) error`                   | 预算内 flush span；幂等，失败降级警告                                       |

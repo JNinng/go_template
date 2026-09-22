@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"go_template/internal/runner"
+	"go_template/pkg/version"
 
 	"github.com/jninng/observ"
 )
@@ -26,7 +27,7 @@ func TestAnnouncer_StartLogsServiceStarted(t *testing.T) {
 		"msg=service_started",
 		"app_name=demo",
 		"app_env=prod",
-		"app_version=" + Version, // 快照自包级 var（ldflags 注入点）
+		"app_version=" + version.Version, // 快照自 pkg/version（ldflags 注入点）
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output %q missing %q", out, want)
