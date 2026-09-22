@@ -11,8 +11,37 @@ otelc:
   protocol: grpc # grpc | http
   logs_enabled: false # OTLP 日志导出（依赖 zapc 后端，经 LogCore 组合）；true 需 endpoint 非空
 promc:
-  addr: ":9090"
+  addr: "" # 独立监听地址；空（缺省）= 不自起 server，/metrics /health 由 httpserver 单端口挂载
   metrics_path: /metrics
   health_path: /health
+httpserver:
+  addr: ":8080" # 业务监听地址（:0 时端口内核分配，Addr() 取实际值）
+  read_timeout: 10s # 读超时（header+body 全程）；0 = 无
+  write_timeout: 30s # 写超时（含慢客户端下载）；0 = 无
+  idle_timeout: 120s # keep-alive 空闲超时；0 = 无
+  max_header_bytes: 1048576 # 请求头上限（字节）；0 = net/http 缺省
+  max_body_size: 10485760 # 请求体上限（字节）；0 = 不限制；超限 413
+  trusted_proxies: # 可信代理网段（XFF 剥离与 traceparent 信任判定共用）
+    - 127.0.0.0/8
+    - ::1/128
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+  liveness: /livez # 存活探针（停机期保持 200）
+  readiness: /readyz # 就绪探针（停机摘流 + promc 健康检查聚合）
+  versions: /version # 版本信息（pkg/version 五字段）
+  cert_file: "" # TLS 证书；空 = HTTP；非空与 key_file 成对启用单监听 HTTPS
+  key_file: ""
+  pprof: true # 暴露 /debug/pprof/*（内网模板定位；公网部署自行关闭）
+  drain_aware: true # 排空期感知停机：readiness 摘流 + Connection: close
+  cors:
+    allowed_origins: ["*"] # 允许的 Origin；公网部署须收紧
+    allowed_methods: [GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS]
+    allowed_headers: ["*"] # 放行全部请求头
+    allow_credentials: false # 与 "*" origins 互斥
+    max_age_seconds: 7200 # preflight 缓存（秒）；0 = 不下发
+greeter:
+  message: hello
+  interval_seconds: 10
 biz:
   message: hello from biz

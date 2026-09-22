@@ -121,8 +121,30 @@ func TestStopAll_ReverseOrderWithBudgetCtx(t *testing.T) {
 	}
 	now := time.Now()
 	for name, d := range deadlines {
-		if d.After(now.Add(stepTimeout + time.Second)) {
-			t.Errorf("stop %s: step deadline %v exceeds stepTimeout", name, d)
+		if d.After(now.Add(defaultStepTimeout + time.Second)) {
+			t.Errorf("stop %s: step deadline %v exceeds defaultStepTimeout", name, d)
+		}
+	}
+}
+
+// SetBudgets：合法取值生效、非法取值（非正、total < step）拒绝且不变更。
+func TestSetBudgets(t *testing.T) {
+	r := New()
+	if r.stepTimeout != 15*time.Second || r.totalBudget != 30*time.Second {
+		t.Fatalf("defaults = %s/%s, want 15s/30s", r.stepTimeout, r.totalBudget)
+	}
+	if err := r.SetBudgets(2*time.Second, 5*time.Second); err != nil {
+		t.Fatalf("valid budgets rejected: %v", err)
+	}
+	if r.stepTimeout != 2*time.Second || r.totalBudget != 5*time.Second {
+		t.Fatalf("budgets not applied: %s/%s", r.stepTimeout, r.totalBudget)
+	}
+	for _, bad := range [][2]time.Duration{{0, 5 * time.Second}, {1 * time.Second, 0}, {-1 * time.Second, 5 * time.Second}, {6 * time.Second, 5 * time.Second}} {
+		if err := r.SetBudgets(bad[0], bad[1]); err == nil {
+			t.Errorf("SetBudgets(%s, %s) must be rejected", bad[0], bad[1])
+		}
+		if r.stepTimeout != 2*time.Second || r.totalBudget != 5*time.Second {
+			t.Fatalf("rejected call mutated state: %s/%s", r.stepTimeout, r.totalBudget)
 		}
 	}
 }

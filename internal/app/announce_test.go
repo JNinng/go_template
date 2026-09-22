@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 
@@ -35,16 +36,24 @@ func TestAnnouncer_StartLogsServiceStarted(t *testing.T) {
 	}
 }
 
+// bizTreeYaml 是测试用配置树：httpserver 绑 127.0.0.1:0（离线可跑，
+// 不占用固定端口），biz 节喂占位组件。
+const bizTreeYaml = "app:\n  name: demo\nhttpserver:\n  addr: 127.0.0.1:0\nbiz:\n  message: hi\n"
+
+// wantBizNames 是 setupBiz 的注册顺序契约（书写顺序即依赖顺序：
+// 可观测三件套在前，httpserver 消费它们的装配，占位业务在后）。
+var wantBizNames = []string{"otelc", "zapc", "promc", "httpserver", "greeter", "biz"}
+
 func TestSetupBiz_WiresPlaceholder(t *testing.T) {
-	tr, _ := newUseTree(t, "biz:\n  message: hi-biz\n")
+	tr, _ := newUseTree(t, bizTreeYaml)
 	r := runner.New()
 	if err := setupBiz(tr, r, Meta{Name: "demo"}); err != nil {
 		t.Fatal(err)
 	}
-	if names := r.Names(); len(names) != 2 || names[0] != "zapc" || names[1] != "biz" {
-		t.Fatalf("placeholder not registered: %v", names)
+	if names := r.Names(); !slices.Equal(names, wantBizNames) {
+		t.Fatalf("registration order wrong: %v", names)
 	}
-	// 占位组件起停回路（Start 记日志到 Noop，不产生输出）
+	// 全链路起停回路（httpserver 绑随机端口、greeter 周期 goroutine 均正常回收）
 	if err := r.StartAll(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -54,19 +63,19 @@ func TestSetupBiz_WiresPlaceholder(t *testing.T) {
 }
 
 func TestSetupBiz_MissingSectionUsesDefaults(t *testing.T) {
-	tr, _ := newUseTree(t, "other:\n  a: 1\n")
+	tr, _ := newUseTree(t, "other:\n  a: 1\nhttpserver:\n  addr: 127.0.0.1:0\n")
 	r := runner.New()
 	if err := setupBiz(tr, r, Meta{Name: "demo"}); err != nil {
-		t.Fatalf("missing biz section must fall back to defaults, got %v", err)
+		t.Fatalf("missing sections must fall back to defaults, got %v", err)
 	}
-	if len(r.Names()) != 2 {
-		t.Fatalf("placeholder must register: %v", r.Names())
+	if !slices.Equal(r.Names(), wantBizNames) {
+		t.Fatalf("registration order wrong: %v", r.Names())
 	}
 }
 
 func TestRun_MultiComponentOrder(t *testing.T) {
 	// 组合顺序契约：announce 首个启动；业务组件随后；逆序停止跳过 nil stop
-	tr, _ := newUseTree(t, "app:\n  name: demo\nbiz:\n  message: hi\n")
+	tr, _ := newUseTree(t, bizTreeYaml)
 	r := runner.New()
 	meta, eff, err := loadMeta(tr, "")
 	if err != nil {
@@ -76,7 +85,8 @@ func TestRun_MultiComponentOrder(t *testing.T) {
 	if err := setupBiz(tr, r, meta); err != nil {
 		t.Fatal(err)
 	}
-	if names := r.Names(); len(names) != 3 || names[0] != "announce" || names[1] != "zapc" || names[2] != "biz" {
+	want := append([]string{"announce"}, wantBizNames...)
+	if names := r.Names(); !slices.Equal(names, want) {
 		t.Fatalf("registration order wrong: %v", names)
 	}
 	if err := r.StartAll(context.Background()); err != nil {

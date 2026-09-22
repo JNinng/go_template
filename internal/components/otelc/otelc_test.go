@@ -13,6 +13,7 @@ import (
 
 	"go_template/internal/components/zapc"
 	"go_template/internal/config"
+	"go_template/pkg/ctxkey"
 
 	"github.com/jninng/observ"
 	"go.opentelemetry.io/otel"
@@ -160,6 +161,54 @@ func TestNew_WithServiceResource(t *testing.T) {
 	for _, want := range []string{"service.name=demo-app", "deployment.environment.name=dev", "service.version=v1.2.3"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("resource %q missing %q", s, want)
+		}
+	}
+}
+
+// WithInstanceID 资源标识：service.instance.id 进 resource。
+func TestNew_WithInstanceIDResource(t *testing.T) {
+	restoreGlobals(t)
+	tr, err := New(Default(), WithService("demo-app", "dev", "v1.2.3"), WithInstanceID("demo-app:pod-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tr.Stop(context.Background()) })
+
+	_, span := otel.Tracer("otelc-test").Start(context.Background(), "op")
+	defer span.End()
+	ro := span.(interface{ Resource() *resource.Resource })
+	if s := ro.Resource().String(); !strings.Contains(s, "service.instance.id=demo-app:pod-1") {
+		t.Errorf("resource %q missing service.instance.id", s)
+	}
+}
+
+// request_id 注入：ctx 携带 request_id（pkg/ctxkey）时日志自动附加，
+// 与 trace_id/span_id 并存；未携带时零属性差异。
+func TestNew_RequestIDInjected(t *testing.T) {
+	restoreGlobals(t)
+	buf := newLogBackend(t)
+	tr, err := New(Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tr.Stop(context.Background()) })
+
+	observ.DefaultLogger().Log(context.Background(), slog.LevelInfo, "no_id")
+
+	ctx, span := otel.Tracer("otelc-test").Start(context.Background(), "op")
+	defer span.End()
+	observ.DefaultLogger().Log(ctxkey.WithRequestID(ctx, "req-42"), slog.LevelInfo, "with_id")
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("lines = %d, want 2\n%s", len(lines), buf.String())
+	}
+	if strings.Contains(lines[0], "request_id=") {
+		t.Errorf("no_id line must not carry request_id: %q", lines[0])
+	}
+	for _, want := range []string{"request_id=req-42", "trace_id=", "span_id="} {
+		if !strings.Contains(lines[1], want) {
+			t.Errorf("with_id line missing %q: %q", want, lines[1])
 		}
 	}
 }

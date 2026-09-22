@@ -7,10 +7,13 @@ import (
 
 	"github.com/jninng/observ"
 	"go.opentelemetry.io/otel/trace"
+
+	"go_template/pkg/ctxkey"
 )
 
 // installLogTrace 以装饰型 observ.Logger 注入链路属性：Log 前从 ctx
-// 读取有效 span，附加 trace_id/span_id 后委托后端。此后运行期动态读
+// 读取有效 span，附加 trace_id/span_id 后委托后端；ctx 携带 request_id
+// （pkg/ctxkey，httpserver 注入）时一并附加。此后运行期动态读
 // DefaultLogger() 的调用全部自动携带链路信息；构造期快照持有者（早于
 // 本组件拿到 logger 的组件）保持旧面。幂等：默认已是本装饰时跳过
 // （重复构造不叠装饰）。
@@ -29,7 +32,8 @@ func installLogTrace() {
 }
 
 // traceLogger 是链路属性注入装饰器：ctx 携带有效 span 时附加
-// trace_id/span_id；无 span 或 span 无效时原样委托（零属性差异）。
+// trace_id/span_id，携带 request_id 时附加 request_id（业务日志与链路
+// 日志由此对齐）；无 span 或 span 无效时原样委托（零属性差异）。
 // Enabled 纯透传。后端原子持有——Rebind 换绑不与在途调用竞争。
 type traceLogger struct{ next atomic.Pointer[observ.Logger] }
 
@@ -57,6 +61,9 @@ func (t *traceLogger) Enabled(ctx context.Context, level slog.Level) bool {
 }
 
 func (t *traceLogger) Log(ctx context.Context, level slog.Level, msg string, attrs ...slog.Attr) {
+	if id := ctxkey.RequestID(ctx); id != "" {
+		attrs = append(attrs, slog.String("request_id", id))
+	}
 	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
 		// attrs 变参切片按 Go 惯例调用后不得再被调用方复用；当前
 		// observ 实现均同步消费，就地追加安全，追加后直传后端。

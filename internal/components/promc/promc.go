@@ -1,8 +1,10 @@
 // Package promc 是内置组件库的指标与健康检查组件：Prometheus 私有
-// registry（预挂 Go 运行时与进程 collectors）经独立 HTTP Server 暴露
-// /metrics 与 /health，并以 adapters/prom 实现 observ.Meter——埋点面
-// （observ.Meter）与导出面（client_golang 私有 registry）由此闭环。
-// 包名取 prometheus 之意拼 c（对齐 zapc 拼法，约定见库 README）。
+// registry（预挂 Go 运行时与进程 collectors）以 adapters/prom 实现
+// observ.Meter——埋点面（observ.Meter）与导出面（client_golang 私有
+// registry）由此闭环；暴露形态缺省为 handler 注入（MetricsHandler /
+// HealthHandler 挂到业务路由，httpserver 单端口收编），配置独立
+// addr 时才自起 HTTP Server。包名取 prometheus 之意拼 c（对齐 zapc
+// 拼法，约定见库 README）。
 //
 // New 即安装 observ 默认 Meter（DefaultMeter，与 zapc 接管默认日志
 // 同款）：其后构造的业务组件未注入 Meter 时构造期回落本组件的出口，
@@ -97,9 +99,23 @@ func (p *Prom) MetricsHandler() http.Handler { return p.metricsH }
 // HealthHandler 返回健康检查等价 handler（单端口注入用）。
 func (p *Prom) HealthHandler() http.Handler { return p.health }
 
+// MetricsPath 返回配置的指标暴露路径（单端口挂载方对齐用）。
+func (p *Prom) MetricsPath() string { return p.cfg.MetricsPath }
+
+// HealthPath 返回配置的健康检查路径（单端口挂载方对齐用）。
+func (p *Prom) HealthPath() string { return p.cfg.HealthPath }
+
 // Start 同步监听（端口占用等绑定错误在此暴露，fail-fast）后起服务
-// goroutine，立即返回。
+// goroutine，立即返回。addr 为空时跳过监听（单端口形态：端点经
+// MetricsHandler / HealthHandler 挂在业务路由上，本组件无独立端口）。
 func (p *Prom) Start(ctx context.Context) error {
+	if p.cfg.Addr == "" {
+		observ.DefaultLogger().Log(ctx, slog.LevelInfo, "promc_server_skipped",
+			slog.String("reason", "addr_empty"),
+			slog.String("metrics_path", p.cfg.MetricsPath),
+			slog.String("health_path", p.cfg.HealthPath))
+		return nil
+	}
 	ln, err := net.Listen("tcp", p.cfg.Addr)
 	if err != nil {
 		return fmt.Errorf("promc: listen %q: %w", p.cfg.Addr, err)
@@ -128,9 +144,12 @@ func (p *Prom) Addr() string {
 }
 
 // Stop 在停机预算内优雅关停（排空在途请求）；幂等可重入，关停失败
-// 降级为警告日志（不视作停机失败）。
+// 降级为警告日志（不视作停机失败）。addr 为空（未自起 server）时空操作。
 func (p *Prom) Stop(ctx context.Context) error {
 	p.once.Do(func() {
+		if p.cfg.Addr == "" {
+			return
+		}
 		if err := p.srv.Shutdown(ctx); err != nil {
 			observ.DefaultLogger().Log(ctx, slog.LevelWarn, "promc_server_stop_failed",
 				slog.Any("error", err))

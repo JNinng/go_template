@@ -16,7 +16,7 @@ import (
 
 func TestDefault(t *testing.T) {
 	c := Default()
-	if c.Addr != ":9090" || c.MetricsPath != "/metrics" || c.HealthPath != "/health" {
+	if c.Addr != "" || c.MetricsPath != "/metrics" || c.HealthPath != "/health" {
 		t.Fatalf("Default = %+v", c)
 	}
 }
@@ -27,8 +27,8 @@ func TestValidate(t *testing.T) {
 		cfg     Config
 		wantErr bool
 	}{
-		{"ok", Default(), false},
-		{"empty addr", Config{Addr: "", MetricsPath: "/m", HealthPath: "/h"}, true},
+		{"ok default (no standalone server)", Default(), false},
+		{"ok standalone addr", Config{Addr: ":9090", MetricsPath: "/m", HealthPath: "/h"}, false},
 		{"empty metrics path", Config{Addr: ":1", MetricsPath: "", HealthPath: "/h"}, true},
 		{"path without slash", Config{Addr: ":1", MetricsPath: "metrics", HealthPath: "/h"}, true},
 		{"same paths", Config{Addr: ":1", MetricsPath: "/x", HealthPath: "/x"}, true},
@@ -124,6 +124,31 @@ func TestStart_PortInUse(t *testing.T) {
 	if err := p.Start(context.Background()); err == nil {
 		_ = p.Stop(context.Background())
 		t.Fatal("Start on occupied port must fail")
+	}
+}
+
+// 单端口形态（缺省）：addr 空 → Start 不监听、无副作用，Stop 空操作；
+// MetricsPath / HealthPath 暴露配置路径供挂载方对齐。
+func TestStart_EmptyAddrSkipsListener(t *testing.T) {
+	p, err := New(Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := p.Start(ctx); err != nil {
+		t.Fatalf("Start with empty addr: %v", err)
+	}
+	if p.Addr() != "" {
+		t.Fatalf("Addr = %q, want empty", p.Addr())
+	}
+	if err := p.Stop(ctx); err != nil {
+		t.Fatalf("Stop with empty addr: %v", err)
+	}
+	if err := p.Stop(ctx); err != nil {
+		t.Fatalf("second Stop must be idempotent: %v", err)
+	}
+	if p.MetricsPath() != "/metrics" || p.HealthPath() != "/health" {
+		t.Fatalf("paths = %q %q", p.MetricsPath(), p.HealthPath())
 	}
 }
 

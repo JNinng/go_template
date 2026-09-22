@@ -128,3 +128,9 @@ func (g *Greeter) current() Config {
 	defer g.mu.Unlock()
 	return g.cfg
 }
+
+// Message 返回当前问候内容（演示路由 httpserver 挂 GET /api/v1/greet
+// 的数据源；配置热更后下个请求即读到新值）。
+func (g *Greeter) Message() string {
+	return g.current().Message
+}

@@ -26,6 +26,7 @@ import (
 
 	"github.com/jninng/observ"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.uber.org/zap/zapcore"
 )
@@ -47,9 +48,10 @@ type Tracer struct {
 type Option func(*options)
 
 type options struct {
-	service string // resource 属性 service.name
-	env     string // resource 属性 deployment.environment.name
-	version string // resource 属性 service.version
+	service    string // resource 属性 service.name
+	env        string // resource 属性 deployment.environment.name
+	version    string // resource 属性 service.version
+	instanceID string // resource 属性 service.instance.id
 }
 
 // WithService 设置 span 与日志的 OTel 资源标识（service.name /
@@ -59,6 +61,14 @@ type options struct {
 // 记录仍可用，但聚合侧无法区分服务归属。
 func WithService(name, env, ver string) Option {
 	return func(o *options) { o.service, o.env, o.version = name, env, ver }
+}
+
+// WithInstanceID 设置 resource 属性 service.instance.id（对齐 OTel
+// semantic conventions）：trace 数据由此与响应头 X-Instance-IDs、日志
+// 定位到同一实例。值由装配点传入（httpserver.InstanceID 的产物，
+// 单一事实源）。
+func WithInstanceID(id string) Option {
+	return func(o *options) { o.instanceID = id }
 }
 
 // New 构造即装配：创建 TracerProvider（endpoint 非空时挂 OTLP 导出器）
@@ -81,6 +91,11 @@ func New(cfg Config, opts ...Option) (*Tracer, error) {
 		return nil, err
 	}
 	otel.SetTracerProvider(tp)
+	// otel ≥1.33 的全局传播器缺省为 noop——不显式装 W3C 的话，
+	// traceparent 头的提取（服务间串联）会静默失效。与 provider 同属
+	// 全局装配，在此一并安装。
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{}, propagation.Baggage{}))
 	installLogTrace()
 	t := &Tracer{cfg: cfg, res: res, flush: tp.Shutdown}
 	if cfg.LogsEnabled {

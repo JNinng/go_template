@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	stepTimeout = 5 * time.Second  // 单组件停止预算
-	totalBudget = 10 * time.Second // 停机总预算
+	defaultStepTimeout = 15 * time.Second // 单组件停止预算缺省
+	defaultTotalBudget = 30 * time.Second // 停机总预算缺省
 )
 
 // entry 是一个已注册组件的启停对。
@@ -30,12 +30,32 @@ type entry struct {
 
 // Runner 按注册顺序启动、逆序停止所辖组件；信号与停机预算由其统一管理。
 type Runner struct {
-	entries []entry // 注册序即启动序，逆序即停止序
-	started int     // 已成功启动的组件数（StopAll 的停止范围）
+	entries     []entry       // 注册序即启动序，逆序即停止序
+	started     int           // 已成功启动的组件数（StopAll 的停止范围）
+	stepTimeout time.Duration // 单组件停止预算
+	totalBudget time.Duration // 停机总预算（≥ stepTimeout 由 SetBudgets 保证）
 }
 
-// New 创建空运行器。
-func New() *Runner { return &Runner{} }
+// New 创建空运行器（预算缺省 15s / 30s——为 httpserver 的真实排空
+// 时间放宽；SetBudgets 可按部署形态调整）。
+func New() *Runner {
+	return &Runner{stepTimeout: defaultStepTimeout, totalBudget: defaultTotalBudget}
+}
+
+// SetBudgets 调整停机预算：step 单组件停止预算、total 停机总预算。
+// 须在 Run 之前调用（Run 之后的调整对已进行的停机无效）；两者须为正
+// 且 total ≥ step，非法取值返回 error 不变更。
+func (r *Runner) SetBudgets(step, total time.Duration) error {
+	if step <= 0 || total <= 0 {
+		return fmt.Errorf("runner: budgets must be positive, got step=%s total=%s", step, total)
+	}
+	if total < step {
+		return fmt.Errorf("runner: total budget %s must be >= step budget %s", total, step)
+	}
+	r.stepTimeout = step
+	r.totalBudget = total
+	return nil
+}
 
 // Add 注册一对生命周期；start / stop 均可为 nil（nil 跳过）。
 // 注册顺序即启动顺序，逆序即停止顺序。
@@ -72,9 +92,9 @@ func (r *Runner) StartAll(ctx context.Context) error {
 	return nil
 }
 
-// StopAll 逆序停止已启动组件：单步预算 stepTimeout、总预算 totalBudget。
-// Stop 错误仅记日志（技术故障 Error）不中断流程；预算耗尽即强杀
-// （退出码 1）。幂等：未启动任何组件时为空操作。
+// StopAll 逆序停止已启动组件：单步预算与总预算见 SetBudgets（缺省
+// 15s / 30s）。Stop 错误仅记日志（技术故障 Error）不中断流程；预算
+// 耗尽即强杀（退出码 1）。幂等：未启动任何组件时为空操作。
 func (r *Runner) StopAll() error {
 	err := r.stopStarted()
 	r.started = 0
@@ -108,13 +128,13 @@ func (r *Runner) Run() error {
 
 // stopStarted 逆序停止前 started 个已启动组件（不重置计数）。
 func (r *Runner) stopStarted() error {
-	deadline := time.Now().Add(totalBudget)
+	deadline := time.Now().Add(r.totalBudget)
 	for i := r.started - 1; i >= 0; i-- {
 		e := r.entries[i]
 		if e.stop == nil {
 			continue
 		}
-		step := time.Now().Add(stepTimeout)
+		step := time.Now().Add(r.stepTimeout)
 		if step.After(deadline) {
 			step = deadline
 		}

@@ -41,6 +41,9 @@ func buildResource(o options) *resource.Resource {
 	if o.version != "" {
 		attrs = append(attrs, semconv.ServiceVersion(o.version))
 	}
+	if o.instanceID != "" {
+		attrs = append(attrs, semconv.ServiceInstanceID(o.instanceID))
+	}
 	if len(attrs) == 0 {
 		return resource.Default()
 	}
