@@ -54,8 +54,9 @@ func New(cfg Config, opts ...Option) (*Log, error) {
 }
 
 // Start 把当前实例安装为 zap 全局（zap.L / zap.S）。
-func (z *Log) Start(_ context.Context) error {
+func (z *Log) Start(ctx context.Context) error {
 	zap.ReplaceGlobals(z.kit.Current())
+	observ.DefaultLogger().Log(ctx, slog.LevelInfo, "zapc_started")
 	return nil
 }
 
