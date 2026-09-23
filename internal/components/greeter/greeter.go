@@ -15,6 +15,10 @@ import (
 	"github.com/jninng/observ"
 )
 
+// SectionName 是 greeter 的配置节名（组件文档声明的节名升格为代码
+// 单一事实源；装配点引用本常量接线，AddComponent 校验与自述一致）。
+const SectionName = "greeter"
+
 // Config 是 greeter 配置节。
 type Config struct {
 	Message     string `yaml:"message"`          // 问候内容，热更生效
@@ -109,6 +113,9 @@ func (g *Greeter) Stop(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
+
+// Section 返回本组件的配置节名（统一节名获取接口，恒返回 SectionName）。
+func (g *Greeter) Section() string { return SectionName }
 
 // ApplyConfig 收敛语义：相同值必须无操作。可能在 Start 之前被调用
 // （收敛首调），实现仅更新状态、不依赖运行时资源；拒绝标准与构造期

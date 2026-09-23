@@ -112,7 +112,7 @@ main.go（3 行：internal/cmd.Execute()）
 │   │   ├── promc/             # 指标与健康检查组件（prom registry + observ.Meter 适配，附录 D）
 │   │   └── httpserver/        # 业务 HTTP Server 组件（可观测中间件链 + 单端口收编，附录 D）
 │   └── config/
-│       ├── config.go          # Load / Tree / Raw / Decode / Dump
+│       ├── config.go          # Load / Tree / Raw / Decode / Section 句柄 / Dump
 │       ├── source.go          # Source 接口 + 文件监听 + 合并管线
 │       ├── overlay.go         # from_env 收集与静态覆盖
 │       └── bus.go             # 节级订阅与串行分发
@@ -242,6 +242,19 @@ func Decode[T any](t *Tree, section string, base T) (T, error)
 //   严格解码（未知键报错，yaml KnownFields 语义）：拼写错误在启动期暴露。
 //   节缺失 → 返回 base 原样（组件以全默认值运行），无 error。
 //   from_env 保留键在解码前剔除。
+
+type Section[T any] struct{ /*（树，节名，默认值基座）三元组，并发安全 */ }
+
+func Bind[T any](t *Tree, name string, base T) *Section[T]
+//   把节绑定为运行时句柄：只登记三元组，不读配置、不失败（解析推迟到 Get）。
+//   name 引组件的 SectionName 常量，避免字面量漂移。
+
+func (s *Section[T]) Name() string
+
+func (s *Section[T]) Get() (T, error)
+//   运行时拉取该节当前合并生效值（pull；与 Watch 的 push 互补，偶发
+//   读取不必常驻订阅）。与 Decode / Watch 重解码同一路径，三者结果恒一致；
+//   严格解码、节缺失回落 base。
 
 func Watch[T any](t *Tree, section string, base T, apply func(T) error) (cancel func())
 //   节级热更订阅：建立时立即以当前值调用一次 apply（收敛语义），
@@ -552,7 +565,11 @@ func (c *Component) Client() *someclient.Client     // 可选：类型化访问�
 ### 11.3 配置约定
 
 - 配置是**可选能力**：无配置的组件没有 Config / Default / 配置节，装配只做 New + Add（§11.5）。
-- 组件**独自**定义其配置节的结构、默认值与解析；节名由组件文档声明（建议包名或知名缩写）。
+- 组件**独自**定义其配置节的结构、默认值与解析；节名以包级常量 `SectionName` 自述
+  （建议包名或知名缩写——文档声明的节名升格为代码事实源）。
+- **统一节名接口**（可选能力，结构化、零 import）：组件实现 `Section() string`（恒返回
+  `SectionName`）即自述其节名；装配点引用常量接线，`AddComponent` 校验接线节名与自述
+  一致，漂移即装配失败（fail-fast）。运行时拉取节配置的句柄见 §8.3 的 `Section`。
 - `Default()` 必须导出，与 `New` 成对——默认值在组件的公开签名面上，是**初始解码与热更重解码共同的基座**
   （缺失键回落默认、节消失回落全默认，都由它兜底）；配合 `config.Dump` 渲染为可粘贴 yaml，手动复制进项目 `config.yaml`：
 
@@ -584,17 +601,17 @@ func setupBiz(t *config.Tree, r *runner, meta Meta) error {
     // 辅助式：Default 与 New 在 AddComponent 签名上成对出现，默认值只写一处。
     // newFn 形参是 func(Cfg) (C, error)：New 不带 option 的组件可直传；
     // 带约定的 opts ...Option 时传闭包（greeter 带 WithLogger，故用闭包）：
-    g, err := AddComponent(t, r, "greeter", greeter.Default(),
+    g, err := AddComponent(t, r, greeter.SectionName, greeter.Default(),
         func(c greeter.Config) (*greeter.Greeter, error) { return greeter.New(c) })
     if err != nil {
         return err
     }
 
     // 手写式（等价展开，需要完全定制时用）：
-    // cfg, err := config.Decode(t, "greeter", greeter.Default())
+    // cfg, err := config.Decode(t, greeter.SectionName, greeter.Default())
     // g, err := greeter.New(cfg)
-    // r.Add("greeter", g.Start, g.Stop)
-    // config.Watch(t, "greeter", greeter.Default(), g.ApplyConfig) // 无热更能力则省略
+    // r.Add(greeter.SectionName, g.Start, g.Stop)
+    // config.Watch(t, greeter.SectionName, greeter.Default(), g.ApplyConfig) // 无热更能力则省略
 
     // 无配置组件：直接注册
     // w := worker.New()
@@ -614,8 +631,11 @@ type lifecycle interface {
 
 type applier[Cfg any] interface{ ApplyConfig(Cfg) error }
 
+type sectioner interface{ Section() string } // 统一节名接口（可选，恒返回组件的 SectionName）
+
 // AddComponent：解码（基座 def）→ newFn 构造 → 注册生命周期；
-// 组件实现 ApplyConfig(Cfg) 时自动订阅节热更（重解码仍以 def 为基座）。
+// 组件实现 ApplyConfig(Cfg) 时自动订阅节热更（重解码仍以 def 为基座）；
+// 实现 Section() string 时校验自述节名与接线一致（漂移即装配失败）。
 // 接口由 Go 结构化类型满足——组件零 import 即被识别。
 func AddComponent[Cfg any, C lifecycle](t *config.Tree, r *runner,
     section string, def Cfg, newFn func(Cfg) (C, error)) (C, error) {
@@ -628,6 +648,11 @@ func AddComponent[Cfg any, C lifecycle](t *config.Tree, r *runner,
     if err != nil {
         var zero C
         return zero, err
+    }
+    if s, ok := any(c).(sectioner); ok && s.Section() != section {
+        var zero C
+        return zero, fmt.Errorf("app: section mismatch: wired %q, component declares %q",
+            section, s.Section())
     }
     r.Add(section, c.Start, c.Stop)
     if a, ok := any(c).(applier[Cfg]); ok {
@@ -674,8 +699,9 @@ r.Add("biz", biz.Start, biz.Stop)
 
 greeter（周期打印问候语）是组件约定的完整示范，源码即文档：
 `internal/components/greeter`——覆盖 Config / Default / New 构造校验 /
-Start / Stop（幂等）/ ApplyConfig 热更 / observ 注入（WithLogger）全套形态，
-并附测试。三种用法见 [internal/components/README.md](../internal/components/README.md)：
+Start / Stop（幂等）/ ApplyConfig 热更 / observ 注入（WithLogger）/ 节名自述
+（SectionName 常量 + Section 统一获取接口，§11.3）全套形态，并附测试。
+三种用法见 [internal/components/README.md](../internal/components/README.md)：
 直接 import 试用、拷出改造为项目自有组件、或仅作编写参考。
 
 配置节（粘贴进 `config.yaml`，或由 `config.Dump` 生成）：

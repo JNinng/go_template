@@ -425,3 +425,12 @@ func TestNew_TakeoverRebindsDecorator(t *testing.T) {
 		t.Fatalf("Rebind calls = %d, want 2 (takeover + rebuild)", got)
 	}
 }
+
+// TestSection_SelfDeclaration 钉住节名契约：组件自述与文档声明的节名
+// 恒一致（字面量漂移在此暴露，而非运行期才被装配校验发现）。
+func TestSection_SelfDeclaration(t *testing.T) {
+	l := &Log{}
+	if l.Section() != SectionName || SectionName != "zapc" {
+		t.Fatalf("section self-declaration drifted: method=%q const=%q", l.Section(), SectionName)
+	}
+}

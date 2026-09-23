@@ -51,6 +51,10 @@ type ServiceRegistry struct {
 	Password    string `yaml:"password"`    // 凭据
 }
 
+// SectionName 是 nacos 的配置节名（与包名一致；两个角色共用一节、
+// 子节分立。装配点引用本常量接线）。
+const SectionName = "nacos"
+
 // Config 为 nacos 节整体（两个子节分立、独立解析）。
 type Config struct {
 	Config    ConfigCenter    `yaml:"config"`    // 配置中心子节

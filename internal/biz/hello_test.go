@@ -51,3 +51,12 @@ func TestStop_IdempotentNoop(t *testing.T) {
 		t.Fatalf("Stop must be idempotent, got %v", err)
 	}
 }
+
+// TestSection_SelfDeclaration 钉住节名契约：组件自述与文档声明的节名
+// 恒一致（字面量漂移在此暴露，而非运行期才被装配校验发现）。
+func TestSection_SelfDeclaration(t *testing.T) {
+	h := &Hello{}
+	if h.Section() != SectionName || SectionName != "biz" {
+		t.Fatalf("section self-declaration drifted: method=%q const=%q", h.Section(), SectionName)
+	}
+}

@@ -241,3 +241,14 @@ func TestLocalIP_TargetPreferred(t *testing.T) {
 		t.Error("localIP returned empty ip")
 	}
 }
+
+// TestSection_SelfDeclaration 钉住节名契约：两个角色的组件自述与文档
+// 声明的节名恒一致（字面量漂移在此暴露，而非运行期才被装配校验发现）。
+func TestSection_SelfDeclaration(t *testing.T) {
+	cc := &CfgClient{}
+	reg := &Reg{}
+	if cc.Section() != SectionName || reg.Section() != SectionName || SectionName != "nacos" {
+		t.Fatalf("section self-declaration drifted: cfg=%q reg=%q const=%q",
+			cc.Section(), reg.Section(), SectionName)
+	}
+}

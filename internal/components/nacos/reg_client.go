@@ -52,6 +52,9 @@ func NewReg(cfg Config, serviceName string, port int, opts ...Option) (*Reg, err
 // 注册窗口内的一切错误——拨号不通、鉴权失败、参数被服务端拒绝——在
 // disable 下一律旁路降级；已知代价是鉴权配置错误时静默不注册、仅一条
 // Warn，靠告警巡检兜住。
+// Section 返回本组件的配置节名（统一节名获取接口，恒返回 SectionName）。
+func (r *Reg) Section() string { return SectionName }
+
 func (r *Reg) Start(ctx context.Context) error {
 	if !r.cfg.Enabled {
 		r.opt.current().Log(context.Background(), slog.LevelInfo, "nacos_registrar_disabled")

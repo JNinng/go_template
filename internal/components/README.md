@@ -3,7 +3,7 @@
 随模板分发的组件菜单，每个组件独立一个包，**依赖不设限**（与普通第三方组件同待遇）。
 组件的第三方依赖随组件进入模板 go.mod；复制方按需取舍：
 
-- **需要的**：直接 import 接线（同模块零成本，`AddComponent(t, r, "<节名>", <pkg>.Default(), ...)`）；
+- **需要的**：直接 import 接线（同模块零成本，`AddComponent(t, r, <pkg>.SectionName, <pkg>.Default(), ...)`）；
   想深度改造就拷到 `internal/` 下你自己的包（import 路径全局替换即可）
 - **不需要的**：整目录删除 → `go mod tidy`，其依赖即被清掉。
   注意先移除 `setupBiz` 里对应的接线行，否则编译不过
@@ -13,7 +13,8 @@
 ## 约定
 
 - 每组件独立包；满足组件约定六件套：Config / Default / New（构造即校验）/
-  Start / Stop（幂等）/ 可选 ApplyConfig
+  Start / Stop（幂等）/ 可选 ApplyConfig；有配置节的组件另以 SectionName
+  常量自述节名、实现 Section() 统一获取接口（AddComponent 校验接线一致）
 - 文件多到不利维护时可在组件目录下拆 `internal/` 子包，公共契约仍收敛于
   组件根包出口（httpserver 为范例：middleware / trust / metric / endpoint /
   instance 均为 internal 实现细节，调用方只见根包 API）

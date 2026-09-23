@@ -4,7 +4,11 @@ import (
 	"fmt"
 )
 
-// Config 是 otelc 配置节（节名 "otelc"，与包名一致）。全部字段为标量；
+// SectionName 是 otelc 的配置节名（与包名一致；装配点引用本常量
+// 接线，AddComponent 校验与自述一致）。
+const SectionName = "otelc"
+
+// Config 是 otelc 配置节（节名 SectionName，与包名一致）。全部字段为标量；
 // 本组件不热更（不实现 ApplyConfig），变更重启生效。
 type Config struct {
 	Endpoint    string `yaml:"endpoint"`     // OTLP collector 地址 host:port；空 = 不导出（仅本地 trace_id 生成与日志关联）

@@ -164,6 +164,43 @@ func TestAddComponent_NewError(t *testing.T) {
 	}
 }
 
+// stubNamed 是实现了统一节名接口的最小组件（Section 恒返回给定值）。
+type stubNamed struct {
+	stubComp
+	section string
+}
+
+func (s *stubNamed) Section() string { return s.section }
+
+func TestAddComponent_SectionSelfDeclarationMatches(t *testing.T) {
+	tr, _ := newUseTree(t, "stub:\n  interval_seconds: 3\n")
+	r := runner.New()
+	if _, err := AddComponent(tr, r, "stub", stubDefault(),
+		func(cfg stubConfig) (*stubNamed, error) {
+			return &stubNamed{section: "stub"}, nil
+		}); err != nil {
+		t.Fatal(err)
+	}
+	if names := r.Names(); len(names) != 1 || names[0] != "stub" {
+		t.Fatalf("lifecycle not registered: %v", names)
+	}
+}
+
+func TestAddComponent_SectionSelfDeclarationMismatchFails(t *testing.T) {
+	tr, _ := newUseTree(t, "stub:\n  interval_seconds: 3\n")
+	r := runner.New()
+	_, err := AddComponent(tr, r, "wired", stubDefault(),
+		func(cfg stubConfig) (*stubNamed, error) {
+			return &stubNamed{section: "declared"}, nil
+		})
+	if err == nil {
+		t.Fatal("wired/declared mismatch must fail assembly")
+	}
+	if len(r.Names()) != 0 {
+		t.Fatal("mismatched component must not register lifecycle")
+	}
+}
+
 func TestSetupSources_DefaultEmpty(t *testing.T) {
 	tr, _ := newUseTree(t, "other:\n  a: 1\n")
 	if err := setupSources(tr); err != nil {

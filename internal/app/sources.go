@@ -10,7 +10,7 @@ import "go_template/internal/config"
 //	import "go_template/internal/components/nacos"
 //
 //	func setupSources(t *config.Tree) error {
-//		cfg, err := config.Decode(t, "nacos", nacos.Default())
+//		cfg, err := config.Decode(t, nacos.SectionName, nacos.Default())
 //		if err != nil {
 //			return err
 //		}

@@ -1,7 +1,8 @@
 // Package zapc 是内置组件库的 zap 日志组件：生命周期装配 + 配置热更
 // （级别即时生效，其余变更重建实例并同步 zap 全局）。文件输出带轮转
 // （大小 / 天数 / 份数 / 压缩），控制台输出固定人类可读格式。接线即接管
-// observ 默认日志器（模板自持的 log: 节被遮蔽），配置节名建议用 "zapc"。
+// observ 默认日志器（模板自持的 log: 节被遮蔽），配置节名以 SectionName
+// 常量自述（"zapc"，与包名一致）。
 //
 // 文件布局：zap.go 组件壳（生命周期 + observ 桥）；config.go 配置节；
 // kit.go 工厂、热更状态机与调用面；build.go sink 与编码组装。
@@ -54,6 +55,9 @@ func New(cfg Config, opts ...Option) (*Log, error) {
 }
 
 // Start 把当前实例安装为 zap 全局（zap.L / zap.S）。
+// Section 返回本组件的配置节名（统一节名获取接口，恒返回 SectionName）。
+func (z *Log) Section() string { return SectionName }
+
 func (z *Log) Start(ctx context.Context) error {
 	zap.ReplaceGlobals(z.kit.Current())
 	observ.DefaultLogger().Log(ctx, slog.LevelInfo, "zapc_started")

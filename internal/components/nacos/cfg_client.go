@@ -49,6 +49,9 @@ func NewCfgClient(cfg Config, opts ...Option) (*CfgClient, error) {
 // Name 返回源名称（日志与错误归因）。
 func (c *CfgClient) Name() string { return "nacos" }
 
+// Section 返回本组件的配置节名（统一节名获取接口，恒返回 SectionName）。
+func (c *CfgClient) Section() string { return SectionName }
+
 // Start 连接配置中心、拉取初始全量内容并订阅变更；阻塞直至 ctx 取消。
 // 首份快照经 push 合并完成后返回语义由模板侧 Attach 保证（同步等待）。
 //

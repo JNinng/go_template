@@ -49,7 +49,11 @@ type CORSConfig struct {
 	MaxAgeSeconds    int      `yaml:"max_age_seconds"`   // preflight 缓存秒数；缺省 7200；0 = 不下发该头
 }
 
-// Config 是 httpserver 配置节（节名 "httpserver"）。热更支持：max_body_size、
+// SectionName 是 httpserver 的配置节名（与包名一致；装配点引用本常量
+// 接线，AddComponent 校验与自述一致）。
+const SectionName = "httpserver"
+
+// Config 是 httpserver 配置节（节名 SectionName）。热更支持：max_body_size、
 // trusted_proxies、drain_aware、cors.*（原子替换）；其余字段变更记
 // httpserver_config_restart_required 警告后不生效（监听器与路由表在
 // Start 前冻结），重启生效。

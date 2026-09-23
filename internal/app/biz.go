@@ -1,7 +1,8 @@
 // 业务组件的装配入口：你的组件从这里接入，无需读 Run 的其余部分。
 //
 // 写法：业务组件放 internal/ 下你自己的包（约定：Config / Default /
-// New / Start / Stop，可选 ApplyConfig），在此用 AddComponent 接线。
+// New / Start / Stop，可选 ApplyConfig 与节名自述 SectionName/Section），
+// 在此用 AddComponent 接线。
 // 模板内置的占位组件 internal/biz 演示了完整链路，项目落地后替换该包。
 package app
 
@@ -30,7 +31,7 @@ func setupBiz(t *config.Tree, r *runner.Runner, meta Meta) error {
 
 	// otelc：链路追踪 + 日志注入（trace_id/span_id/request_id）。
 	// 资源标识：name/env 从元数据、version 从 pkg/version、instanceID 从上。
-	tr, err := AddComponent(t, r, "otelc", otelc.Default(),
+	tr, err := AddComponent(t, r, otelc.SectionName, otelc.Default(),
 		func(c otelc.Config) (*otelc.Tracer, error) {
 			return otelc.New(c,
 				otelc.WithService(meta.Name, meta.Env, version.Version),
@@ -44,7 +45,7 @@ func setupBiz(t *config.Tree, r *runner.Runner, meta Meta) error {
 	// 接线即回落 slog 链路）；配置非法或输出打不开 → 引导失败。
 	// WithCore(tr.LogCore()) 无条件传参：otelc 未启用 OTLP 日志导出时
 	// LogCore 为 nil，zapc.WithCore(nil) 被忽略，接线无需分支。
-	_, err = AddComponent(t, r, "zapc", zapc.Default(),
+	_, err = AddComponent(t, r, zapc.SectionName, zapc.Default(),
 		func(c zapc.Config) (*zapc.Log, error) { return zapc.New(c, zapc.WithCore(tr.LogCore())) })
 	if err != nil {
 		return err
@@ -52,14 +53,14 @@ func setupBiz(t *config.Tree, r *runner.Runner, meta Meta) error {
 
 	// promc：指标与健康检查。addr 缺省空 = 不自起独立 server，
 	// handler 由 httpserver 单端口收编（见下 WithProm）。
-	pm, err := AddComponent(t, r, "promc", promc.Default(), promc.New)
+	pm, err := AddComponent(t, r, promc.SectionName, promc.Default(), promc.New)
 	if err != nil {
 		return err
 	}
 
 	// httpserver：业务 HTTP Server（中间件链、/livez /readyz /version
 	// /debug/pprof，promc 的 /metrics /health 一并挂进业务端口）。
-	hs, err := AddComponent(t, r, "httpserver", httpserver.Default(),
+	hs, err := AddComponent(t, r, httpserver.SectionName, httpserver.Default(),
 		func(c httpserver.Config) (*httpserver.Server, error) {
 			return httpserver.New(c,
 				httpserver.WithService(meta.Name, meta.Env, version.Version),
@@ -71,7 +72,7 @@ func setupBiz(t *config.Tree, r *runner.Runner, meta Meta) error {
 
 	// greeter：周期问候的约定示范组件，这里另挂一条演示路由展示业务侧
 	// 用法（业务路由一律在装配期注册——httpserver 的注册窗口在 Start 关闭）。
-	g, err := AddComponent(t, r, "greeter", greeter.Default(),
+	g, err := AddComponent(t, r, greeter.SectionName, greeter.Default(),
 		func(c greeter.Config) (*greeter.Greeter, error) { return greeter.New(c) })
 	if err != nil {
 		return err
@@ -86,11 +87,16 @@ func setupBiz(t *config.Tree, r *runner.Runner, meta Meta) error {
 
 	// 占位业务：读 biz 节构造 Hello，启动时输出一句日志。
 	// Hello 没有实现 ApplyConfig，所以改 biz 节不热更（重启生效）。
-	if _, err := AddComponent(t, r, "biz", biz.Default(),
+	if _, err := AddComponent(t, r, biz.SectionName, biz.Default(),
 		func(c biz.Config) (*biz.Hello, error) { return biz.New(c) }); err != nil {
 		return err
 	}
 
+	// 运行时需要拉取某节当前生效值（pull，Watch 的 push 之外的选项）：
+	// 装配点绑定句柄，任意时刻 Get——与 Decode 同一路径、并发安全：
+	// hsCfg := config.Bind(t, httpserver.SectionName, httpserver.Default())
+	// cfg, err := hsCfg.Get()
+	//
 	// 追加更多业务组件照此写。前一个组件的返回值可以直接传给下一个
 	// 组件的构造参数，依赖方向即书写顺序：
 	//

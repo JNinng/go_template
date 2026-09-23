@@ -5,7 +5,11 @@ import (
 	"strings"
 )
 
-// Config 是 promc 配置节（节名 "promc"，与包名一致）。全部字段为标量；
+// SectionName 是 promc 的配置节名（与包名一致；装配点引用本常量
+// 接线，AddComponent 校验与自述一致）。
+const SectionName = "promc"
+
+// Config 是 promc 配置节（节名 SectionName，与包名一致）。全部字段为标量；
 // 本组件不热更（不实现 ApplyConfig），变更重启生效。
 type Config struct {
 	Addr        string `yaml:"addr"`         // 独立监听地址；缺省空 = 不自起 server（handler 仍可挂到业务路由，见 MetricsHandler）

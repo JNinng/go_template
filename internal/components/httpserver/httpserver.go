@@ -228,6 +228,9 @@ func (s *Server) HandleFunc(pattern string, h func(http.ResponseWriter, *http.Re
 // Start 组装中间件链并同步监听（端口占用等绑定错误在此暴露，
 // fail-fast）后起服务 goroutine。TLS 由 cert_file/key_file 非空启用
 // （单监听 HTTPS；HTTP+HTTPS 双监听不在范围）。
+// Section 返回本组件的配置节名（统一节名获取接口，恒返回 SectionName）。
+func (s *Server) Section() string { return SectionName }
+
 func (s *Server) Start(ctx context.Context) error {
 	s.started.Store(true) // 关闭注册窗口（此后 Handle panic）
 	s.handler = s.buildHandler()

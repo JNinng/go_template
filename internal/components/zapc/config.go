@@ -6,6 +6,10 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// SectionName 是 zapc 的配置节名（与包名一致；装配点引用本常量
+// 接线，AddComponent 校验与自述一致）。
+const SectionName = "zapc"
+
 // Config 是 zapc 配置节。全部字段为标量（可 == 比较）——热更按字段识别变更面。
 type Config struct {
 	Level        string `yaml:"level"`          // 日志级别：热更即时生效（仅调 AtomicLevel，实例不换）

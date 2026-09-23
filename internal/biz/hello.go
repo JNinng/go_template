@@ -11,7 +11,11 @@ import (
 	"github.com/jninng/observ"
 )
 
-// Config 是占位业务组件的配置节（节名 "biz"，与包名一致）。
+// SectionName 是占位业务组件的配置节名（与包名一致；装配点引用本常量
+// 接线，AddComponent 校验与自述一致）。项目替换本包时照此导出同名常量。
+const SectionName = "biz"
+
+// Config 是占位业务组件的配置节（节名 SectionName，与包名一致）。
 type Config struct {
 	Message string `yaml:"message"` // 启动时输出的内容
 }
@@ -61,3 +65,6 @@ func (h *Hello) Stop(ctx context.Context) error {
 	h.logger.Log(ctx, slog.LevelInfo, "biz_stopped")
 	return nil
 }
+
+// Section 返回本组件的配置节名（统一节名获取接口，恒返回 SectionName）。
+func (h *Hello) Section() string { return SectionName }

@@ -109,6 +109,29 @@ func Decode[T any](t *Tree, section string, base T) (T, error) {
 	return decodeSection(t, section, base)
 }
 
+// Section 是配置节的运行时句柄：绑定（树，节名，默认值基座）三元组，
+// 支持任意时刻拉取该节的当前合并生效值。Get 的 pull 语义与 Watch 的
+// push 语义互补（偶发读取不必常驻订阅）；与 Decode 走同一解码路径，
+// 三者结果恒一致。并发安全；经 Bind 构造，零值不可用。
+type Section[T any] struct {
+	t    *Tree
+	name string
+	base T
+}
+
+// Bind 把节绑定为运行时句柄：只登记三元组，不读配置、不失败
+// （解析推迟到 Get）。name 建议引组件的 SectionName 常量，避免字面量漂移。
+func Bind[T any](t *Tree, name string, base T) *Section[T] {
+	return &Section[T]{t: t, name: name, base: base}
+}
+
+// Name 返回节名。
+func (s *Section[T]) Name() string { return s.name }
+
+// Get 取该节当前合并生效值：严格解码（未知键报错）、节缺失回落 base，
+// 与 Decode 同一路径（decodeSection）。
+func (s *Section[T]) Get() (T, error) { return decodeSection(s.t, s.name, s.base) }
+
 // decodeSection 是 Decode 的实现体，也是 Watch 投递时的重解码入口：
 // 两者走同一路径，收敛首调与 Decode 结果因此恒一致。
 func decodeSection[T any](t *Tree, section string, base T) (T, error) {
