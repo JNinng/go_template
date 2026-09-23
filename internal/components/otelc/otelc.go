@@ -72,11 +72,12 @@ func WithInstanceID(id string) Option {
 }
 
 // New 构造即装配：创建 TracerProvider（endpoint 非空时挂 OTLP 导出器）
-// 并安装为全局，随后装饰日志面——此后动态读 DefaultLogger() 的日志输出
-// 在 ctx 携带有效 span 时自动附加 trace_id/span_id（装饰实现 Rebind
-// 协议，在日志后端接管与热更重建后保持有效）。logs_enabled 时另建
-// OTLP 日志导出管线（LogCore 组合方式见 README）。构造失败即未启动、
-// 已建 provider 就地回收；此前的全局指派随引导失败进程退出，无实际影响。
+// 并安装为全局，随后装饰日志面——未接 zapc 的项目经此保持链路日志对齐
+// （slog 缺省后端的兜底注入；接 zapc 时接管整体替换本装饰，链路注入由
+// 装配点 zapc.WithCtxAttrs(CtxLogAttrs) 在 zaplog 适配层完成，装配序
+// 恒为本组件先、zapc 后）。logs_enabled 时另建 OTLP 日志导出管线
+// （LogCore 组合方式见 README）。构造失败即未启动、已建 provider 就地
+// 回收；此前的全局指派随引导失败进程退出，无实际影响。
 func New(cfg Config, opts ...Option) (*Tracer, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err

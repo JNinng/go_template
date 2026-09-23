@@ -735,9 +735,10 @@ nacos 已内置：`internal/components/nacos`（cfg 配置中心 Source + reg �
 
 - 新模板仓库文档四件：`docs/DESIGN.md`（本文）、`docs/ASSETS.md`（资产清单）、`CONTEXT.md`（术语表，从本文 §3 拆出随代码演进维护）、
   `docs/adr/`（架构决策记录）；另附仓库门面 `README.md`（quickstart）与 `LICENSE`（MIT）。
-- **ADR 判据**（三者齐备才立）：难以逆转、缺上下文会令未来读者困惑、真实权衡的结果。本设计配套 ADR 五份：ADR-0001
+- **ADR 判据**（三者齐备才立）：难以逆转、缺上下文会令未来读者困惑、真实权衡的结果。本设计配套 ADR 六份：ADR-0001
   组件零依赖与装配点胶水、ADR-0002 复制式消费、ADR-0003 日志单一 observ 调用面、ADR-0004 可观测组件进内置库与 observ ctx
-  演进、ADR-0005 httpserver 可观测聚合（单端口收编、接口化强绑定与 Link 语义）。设计文档本身维持定稿直叙、无中间决策；ADR 仅作决策背景补充，**不是实现依赖**（不读 ADR 亦可凭本文完成实现）。
+  演进、ADR-0005 httpserver 可观测聚合（单端口收编、接口化强绑定与 Link 语义）、ADR-0006 稳定桥与请求日志独立（Rebind
+  协议退役、链路注入沉入适配层、caller 恒定）。设计文档本身维持定稿直叙、无中间决策；ADR 仅作决策背景补充，**不是实现依赖**（不读 ADR 亦可凭本文完成实现）。
 
 ## 附录 D：可观测组件参考
 
@@ -753,10 +754,11 @@ tracing 与日志导出）、`internal/components/promc`（指标与健康检查
 - otelc 的承重行为：endpoint 为空也安装 TracerProvider，trace_id 生成
   与日志关联照常工作，仅不导出；endpoint 非空才创建 OTLP 导出器
   （grpc/http，恒 insecure——TLS 与凭据不在范围）
-- otelc 的日志注入做在 observ 边界装饰层：动态读 `DefaultLogger()`
-  的调用自动携带 trace_id/span_id；构造期快照持有者保持旧面。装饰实现
-  `Rebind(observ.Logger)` 协议——zapc 接管与热更重建时经协议原地重绑
-  后端，装饰持续有效，接线顺序不受限
+- otelc 的日志注入经 `CtxLogAttrs` 提取器双通道：接 zapc 时装配点以
+  `zapc.WithCtxAttrs(otelc.CtxLogAttrs)` 注入，zaplog 适配层在桥内部
+  附加 trace_id/span_id/request_id——调用面无装饰层，caller 定位恒定
+  （桥包装 kit、身份恒定，zapc 接管 `SetDefaultLogger` 一次完成，
+  ADR-0006）；未接 zapc 时构造仍以装饰兜底（slog 缺省后端的链路对齐）
 - otelc 的 OTLP 日志导出（logs_enabled）：经 otelzap 桥产出 zap core，
   装配点以 `zapc.WithCore` 并进 tee——**依赖 zapc 后端**（缺省 slog
   管线无此通路，维持零第三方依赖边界）；进入 zap 的每条日志出海，
@@ -774,11 +776,15 @@ tracing 与日志导出）、`internal/components/promc`（指标与健康检查
   server，`/metrics` `/health` 由 httpserver 经 `WithProm` 挂进业务
   路由（单端口收编，ADR-0005）；需要独立端口显式配置 `promc.addr`
 - httpserver 的中间件链（Recovery → CORS → 访问日志/指标 → otelhttp
-  tracing → RequestID → 请求体上限）强绑定三件可观测设施：访问日志
-  直调 `zap.L()`、tracing 走 otel 全局、指标注册 promc 私有 registry
-  （`observ.Meter` 无 label 维度，故直连 prometheus 原生 API）；
-  停机三步走（readiness 摘流 → 关 keep-alive → Shutdown 排空），
-  热路径跳过清单不产日志与指标
+  tracing → RequestID → 请求体上限）强绑定三件可观测设施：请求日志
+  经 `WithAccessLogger` 注入独立记录器（装配点从 zapc 节派生独立 zapc
+  实例：配置继承、path 固定同目录 `req.log`、caller 关闭、等级独立
+  门控、热更跟随；未注入回落 `zap.L()`）、tracing 走 otel 全局、指标
+  注册 promc 私有 registry（`observ.Meter` 无 label 维度，故直连
+  prometheus 原生 API）；请求内业务日志经 `LoggerFrom(ctx)` 取预绑定
+  request_id/trace_id/span_id 的记录器（zap 全局逐请求派生，归应用流；
+  直调 `zap.L()` 同源但无预绑定字段）；停机三步走（readiness 摘流 →
+  关 keep-alive → Shutdown 排空），热路径跳过清单不产日志与指标
 - otelc 同时安装全局 W3C 传播器（TraceContext + Baggage）——otel ≥1.33
   全局传播器缺省 noop，不显式安装则 traceparent 提取静默失效
 - httpserver 的链路信任判定：可信来源（RemoteAddr ∈ trusted_proxies）

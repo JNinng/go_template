@@ -9,7 +9,9 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.27.0"
 	"go.opentelemetry.io/otel/trace"
+	"go.uber.org/zap"
 
+	"go_template/internal/components/httpserver/internal/ctxlog"
 	"go_template/pkg/ctxkey"
 )
 
@@ -36,7 +38,10 @@ var requestIDRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 // 响应头与 RequestID 同步写 X-Trace-ID（span 有效时）——响应、日志、
 // 链路三方凭同一 TraceID 互查。同时把 request_id / trace_id / span /
 // 路由模板回填进请求共享状态（reqState），供外层访问日志与 Recovery
-// 的 panic 日志消费。span 改名须在本层做：本层以 WithContext 复制请求
+// 的 panic 日志消费。本层还把预绑定链路字段（request_id/trace_id/
+// span_id）的记录器挂进 ctx——由 zap 全局逐请求派生（业务日志归应用
+// 流，req.log 只放访问记录），业务 handler 经根包 LoggerFrom 取用，
+// 深层代码免逐层穿字段。span 改名须在本层做：本层以 WithContext 复制请求
 // 对象（mux 把 r.Pattern 回填在副本上，再外层已不可见），且本层返回时
 // span 尚未 End（otelhttp 的 defer End 在其返回时才触发），此刻
 // SetName/属性仍生效。
@@ -69,7 +74,13 @@ func requestID(next http.Handler) http.Handler {
 				st.span = sp
 			}
 		}
-		r = r.WithContext(ctxkey.WithRequestID(r.Context(), id))
+		reqCtx := ctxkey.WithRequestID(r.Context(), id)
+		l := zap.L().With(zap.String("request_id", id))
+		if sc.IsValid() {
+			l = l.With(zap.String("trace_id", sc.TraceID().String()),
+				zap.String("span_id", sc.SpanID().String()))
+		}
+		r = r.WithContext(ctxlog.With(reqCtx, l))
 		next.ServeHTTP(w, r)
 		if st != nil {
 			if p := r.Pattern; p != "" {

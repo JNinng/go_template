@@ -2,8 +2,8 @@
 
 把 `go.uber.org/zap` 装配为生命周期组件：启停装全局、配置热更（级别即时生效，
 其余变更重建实例）、文件轮转（lumberjack）。包名拼 `c` 与 `go.uber.org/zap`
-消解同名（约定见库 README）。接线即**接管 observ 默认日志器**（zaplog 桥，
-热更重建自动重绑）——业务既有 observ 调用零改动即换到 zap 后端，模板自持的
+消解同名（约定见库 README）。接线即**接管 observ 默认日志器**（稳定桥，
+热更重建自动跟随）——业务既有 observ 调用零改动即换到 zap 后端，模板自持的
 `log:` 节被遮蔽（删掉接线即回落 slog 链路）。调用面三通道等价：`zap.L()` /
 `zap.S()`（全局）、kit 的 `Info` / `Check`、observ（业务侧）。
 
@@ -63,11 +63,20 @@ zapc:
 - **caller 双实例**：构建即启用 caller，实例分两份——原始实例（skip 0）供
   `zap.L()` / `Current()` 直调，跳一层实例（`AddCallerSkip(1)`）供 kit 封装
   方法；两条调用面的 caller 都定位到用户代码行，热更换新成对换
-- **observ 桥**：`New` 起接管 observ 默认日志器（zaplog 适配），经
-  `WithOnSwap` 跟随热更重建自动重绑；不跟随的绑定会在重建后攥着已关闭的
-  旧实例——外部旁路设施一律走该钩子。接管尊重 Rebind 协议：默认日志器
-  实现 `Rebind(observ.Logger)`（如 otelc 链路装饰）时原地重绑而非整体
-  替换，装饰跨接管与重建存活
+- **observ 稳定桥**：`New` 起以 `zaplog.NewDynamic(kit.CurrentSkip1)`
+  构造稳定桥并接管 observ 默认日志器——桥包装 kit 而非实例，热更重建
+  只换 kit 内实例、桥自动跟随，`SetDefaultLogger` 进程内一次性完成，
+  接管不感知既有默认日志器的形态。caller skip 在实例侧烘焙（跳一层恒
+  补偿 zaplog 适配帧），调用面无装饰层，定位不随封装漂移。外部旁路
+  设施（不随 kit 走的绑定）仍走 `WithOnSwap` 钩子
+- **WithCtxAttrs 链路注入**：经稳定桥的每次调用在 zaplog 适配层内部
+  从 ctx 追加属性（装配点传 `otelc.CtxLogAttrs`，本组件不 import
+  otel）——trace_id/span_id/request_id 自动附带，无装饰层、caller
+  恒定。只影响稳定桥，`zap.L()` / `Current` 直调不受影响；未传时不
+  注入（接管会整体替换此前安装的 observ 默认，含已有装饰）
+- **WithEncoderConfig 编码定制**：以基准 `EncoderConfig` 为入参的就地
+  修改函数（如请求日志关 caller：置空 `CallerKey`），构建期属性、
+  初始构建与热更重建都生效，不改 yaml 配置面
 - **WithCore 旁路 core**：注入的 core 与自建 core 经 `NewTee` 并联、
   共享构建路径——初始构建与每次热更重建都自动带上（构建参数而非一次性
   注入，无"重建后脱落"问题）；core 的启停与 flush 生命周期归提供方

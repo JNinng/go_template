@@ -52,7 +52,8 @@ _Avoid_: 容器（不做依赖校验、配置分发、启用开关）
 **链路追踪组件（otelc）**：
 内置组件库的 OTel 追踪组件（`internal/components/otelc`）：全局
 TracerProvider 装配 + 全局 W3C 传播器 + OTLP 导出 + 日志链路注入
-（trace_id/span_id/request_id，经 observ 边界装饰）。
+（`CtxLogAttrs` 提取器：接 zapc 时经 `WithCtxAttrs` 沉入适配层，未接
+zapc 时装饰兜底）。
 _Avoid_: APM（指商业监控产品）
 
 **指标与健康组件（promc）**：
@@ -68,6 +69,15 @@ registry，不经 `prometheus.DefaultRegisterer` 的指标不暴露）
 RequestID/Recovery/CORS/请求体上限），单端口收编 promc 端点，停机
 三步走（readiness 摘流 → 关 keep-alive → 排空）。
 _Avoid_: Web 框架（路由是标准库 ServeMux，组件不是框架）、网关（不做路由转发）
+
+**请求日志（request log）**：
+httpserver 访问/panic 日志的独立日志流：装配点从 zapc 节派生独立
+zapc 实例（配置继承、热更跟随、等级独立门控），`path` 固定 zapc.path
+同目录 `req.log`、caller 关闭，经 `WithAccessLogger` 注入。请求内业务
+日志不经此流——`LoggerFrom(ctx)` 由 zap 全局逐请求派生、预绑定链路
+字段，业务日志归应用流，两流按排障口径分立。
+_Avoid_: 业务日志混入 req.log（排障互扰、受请求等级门控）、直调
+`zap.L()` 记请求内日志（无预绑定链路字段）
 
 **实例 ID（instance ID）**：
 服务实例的标识（`{服务名}:{HOSTNAME}`，INSTANCE_ID 环境变量可整体

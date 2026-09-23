@@ -77,13 +77,16 @@ func observability(d Deps, next http.Handler) http.Handler {
 			zap.Int64("request_bytes", bodyBytes),
 			zap.Int64("response_bytes", rec.bytes))
 
+		// 请求日志走注入的独立记录器（未注入回落 zap 全局）：级别按
+		// 状态码映射，门控归记录器自身的级别。
+		al := d.accessLogger()
 		switch {
 		case code >= 500:
-			zap.L().Error("httpserver_request_completed", fields...)
+			al.Error("httpserver_request_completed", fields...)
 		case code >= 400:
-			zap.L().Warn("httpserver_request_completed", fields...)
+			al.Warn("httpserver_request_completed", fields...)
 		default:
-			zap.L().Info("httpserver_request_completed", fields...)
+			al.Info("httpserver_request_completed", fields...)
 		}
 	})
 }

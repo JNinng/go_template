@@ -42,9 +42,10 @@ const bizTreeYaml = "app:\n  name: demo\nhttpserver:\n  addr: 127.0.0.1:0\nbiz:\
 
 // wantBizNames 是 setupBiz 的注册顺序契约（书写顺序即依赖顺序：
 // 可观测三件套在前，httpserver 消费它们的装配，占位业务在后）。
-var wantBizNames = []string{"otelc", "zapc", "promc", "httpserver", "greeter", "biz"}
+var wantBizNames = []string{"otelc", "zapc", "req-log", "promc", "httpserver", "greeter", "biz"}
 
 func TestSetupBiz_WiresPlaceholder(t *testing.T) {
+	t.Chdir(t.TempDir()) // 请求日志兜底目录（log/req.log）落在工作目录
 	tr, _ := newUseTree(t, bizTreeYaml)
 	r := runner.New()
 	if err := setupBiz(tr, r, Meta{Name: "demo"}); err != nil {
@@ -63,6 +64,7 @@ func TestSetupBiz_WiresPlaceholder(t *testing.T) {
 }
 
 func TestSetupBiz_MissingSectionUsesDefaults(t *testing.T) {
+	t.Chdir(t.TempDir())
 	tr, _ := newUseTree(t, "other:\n  a: 1\nhttpserver:\n  addr: 127.0.0.1:0\n")
 	r := runner.New()
 	if err := setupBiz(tr, r, Meta{Name: "demo"}); err != nil {
@@ -75,6 +77,7 @@ func TestSetupBiz_MissingSectionUsesDefaults(t *testing.T) {
 
 func TestRun_MultiComponentOrder(t *testing.T) {
 	// 组合顺序契约：announce 首个启动；业务组件随后；逆序停止跳过 nil stop
+	t.Chdir(t.TempDir())
 	tr, _ := newUseTree(t, bizTreeYaml)
 	r := runner.New()
 	meta, eff, err := loadMeta(tr, "")

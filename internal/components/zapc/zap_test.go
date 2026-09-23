@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/jninng/observ"
+	"github.com/jninng/observ/adapters/zaplog"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -375,35 +376,12 @@ func TestNew_PassesOptionsThrough(t *testing.T) {
 	}
 }
 
-// rebindDec 是实现 Rebind 协议的装饰桩：只记录重绑次数（zapc 接管的
-// 装饰器路径验证用）。
-type rebindDec struct {
-	mu   sync.Mutex
-	hits int
-}
-
-func (d *rebindDec) Enabled(context.Context, slog.Level) bool              { return false }
-func (d *rebindDec) Log(context.Context, slog.Level, string, ...slog.Attr) {}
-func (d *rebindDec) Rebind(observ.Logger) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.hits++
-}
-
-func (d *rebindDec) rebinds() int {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.hits
-}
-
-// 接管尊重 Rebind 协议：默认日志器是装饰器时不整体替换，而是原地重绑
-// （初始接管与每次热更重建各一次）——otelc 链路注入由此在 zapc 接管与
-// 热更后存活。
-func TestNew_TakeoverRebindsDecorator(t *testing.T) {
+// 接管形态是稳定桥：observ 默认日志器身份在热更重建前后恒定（只换
+// kit 内实例、桥自动跟随），且经默认日志器的输出在重建前后都落当前
+// 实例的 sink——otelc 链路注入的存活性由桥身份恒定保证。
+func TestNew_TakeoverStableBridge(t *testing.T) {
 	old := observ.SetDefaultLogger(observ.NoopLogger)
 	defer observ.SetDefaultLogger(old)
-	dec := &rebindDec{}
-	observ.SetDefaultLogger(dec)
 
 	path := filepath.Join(t.TempDir(), "takeover.log")
 	cfg := testCfg(path, "info")
@@ -413,16 +391,89 @@ func TestNew_TakeoverRebindsDecorator(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = z.Stop(context.Background()) })
 
-	if observ.DefaultLogger() != observ.Logger(dec) {
-		t.Fatal("takeover must keep the Rebind-capable default in place")
-	}
+	// 持有桥引用（接口拷贝）：热更重建后经旧引用的调用必须落到新实例
+	// 的 sink——桥身份恒定（包装 kit）的直接证明；若接管重建是"造新桥
+	// 整体替换"（旧实现），旧引用会攥着已关闭的旧实例而丢失输出。
+	bridge := observ.DefaultLogger()
+	observ.DefaultLogger().Log(context.Background(), slog.LevelInfo, "before_rebuild")
+
 	next := cfg
 	next.Format = "json"
 	if err := z.ApplyConfig(next); err != nil {
 		t.Fatal(err)
 	}
-	if got := dec.rebinds(); got != 2 {
-		t.Fatalf("Rebind calls = %d, want 2 (takeover + rebuild)", got)
+	bridge.Log(context.Background(), slog.LevelInfo, "after_rebuild")
+
+	b := content(t, path)
+	if !strings.Contains(b, "before_rebuild") || !strings.Contains(b, "after_rebuild") {
+		t.Fatalf("both lines must reach the current sink:\n%s", b)
+	}
+}
+
+// WithCtxAttrs：链路注入沉入适配层——经稳定桥的调用带提取属性，且不
+// 产生装饰层（caller skip 由实例侧烘焙，层数恒定）；zap.L()/Current
+// 直调不经桥、不带注入。
+func TestWithCtxAttrs_BridgeInjection(t *testing.T) {
+	old := observ.SetDefaultLogger(observ.NoopLogger)
+	defer observ.SetDefaultLogger(old)
+
+	type key struct{}
+	z, path := newForTest(t, nil) // New 内部完成接管（桥无注入）
+	t.Cleanup(func() { observ.SetDefaultLogger(old) })
+	_ = z
+
+	// 重装带注入的桥（模拟装配点 zapc.New(WithCtxAttrs) 形态）
+	kit := z.kit
+	bridge := zaplog.NewDynamic(kit.CurrentSkip1,
+		zaplog.WithCtxAttrs(func(ctx context.Context) []slog.Attr {
+			if ctx.Value(key{}) == nil {
+				return nil
+			}
+			return []slog.Attr{slog.String("trace_id", "t-42")}
+		}))
+	observ.SetDefaultLogger(bridge)
+
+	observ.DefaultLogger().Log(context.WithValue(context.Background(), key{}, true),
+		slog.LevelInfo, "via_bridge")
+	kit.Info("via_kit")
+
+	b := content(t, path)
+	if strings.Count(b, "trace_id") != 1 {
+		t.Fatalf("bridge call must carry ctx attrs exactly once:\n%s", b)
+	}
+	if !strings.Contains(b, "via_kit") {
+		t.Fatalf("kit call must reach sink:\n%s", b)
+	}
+	if kitLine := strings.Split(b, "via_kit")[0]; strings.Contains(kitLine[strings.LastIndex(kitLine, "\n")+1:], "trace_id") {
+		t.Fatalf("kit direct call must not carry ctx attrs:\n%s", b)
+	}
+}
+
+// WithEncoderConfig：编码器定制在初始构建与热更重建都生效（关 caller）。
+func TestWithEncoderConfig_DisablesCaller(t *testing.T) {
+	old := observ.SetDefaultLogger(observ.NoopLogger)
+	defer observ.SetDefaultLogger(old)
+
+	path := filepath.Join(t.TempDir(), "req.log")
+	z, err := New(testCfg(path, "info"),
+		WithEncoderConfig(func(e *zapcore.EncoderConfig) { e.CallerKey = "" }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = z.Stop(context.Background()) })
+
+	z.kit.Info("enc_probe")
+	if got := content(t, path); strings.Contains(got, "caller") {
+		t.Fatalf("caller must be disabled, got:\n%s", got)
+	}
+	next := testCfg(path, "info")
+	next.Format = "json"
+	if err := z.ApplyConfig(next); err != nil {
+		t.Fatal(err)
+	}
+	z.kit.Info("enc_probe_json")
+	if got := content(t, path); strings.Count(got, "caller") != 0 {
+		t.Fatalf("caller must stay disabled after rebuild, got:\n%s", got)
 	}
 }
 

@@ -1,7 +1,9 @@
 package zapc
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 
@@ -15,9 +17,11 @@ import (
 type Watcher func(apply func(Config) error) (cancel func())
 
 type options struct {
-	watch  Watcher
-	onSwap func(*zap.Logger) // 实例换新回调（初始构建与每次热更重建都触发）
-	extra  []zapcore.Core    // 旁路 core（WithCore 注入；nil 项忽略）
+	watch     Watcher
+	onSwap    func(*zap.Logger)                 // 实例换新回调（初始构建与每次热更重建都触发）
+	extra     []zapcore.Core                    // 旁路 core（WithCore 注入；nil 项忽略）
+	ctxAttrs  func(context.Context) []slog.Attr // ctx 属性提取（WithCtxAttrs 注入；nil = 不注入）
+	encMutate func(*zapcore.EncoderConfig)      // 编码器定制（WithEncoderConfig 注入；nil = 基准）
 }
 
 // Option 构造选项。
@@ -43,10 +47,27 @@ func WithWatch(w Watcher) Option {
 	return func(o *options) { o.watch = w }
 }
 
+// WithCtxAttrs 注入 ctx 属性提取器：经稳定桥（observ 默认日志器）的
+// 每次调用在适配层内部从 ctx 追加属性（链路注入 trace_id/span_id/
+// request_id 等，提取函数由装配点从 otelc.CtxLogAttrs 传入）。注入在
+// zaplog 适配层完成——调用面无装饰层，caller 定位不随封装漂移。只影响
+// 稳定桥，不影响 zap.L() 直调与 Current 调用面。传 nil 忽略。
+func WithCtxAttrs(fn func(context.Context) []slog.Attr) Option {
+	return func(o *options) { o.ctxAttrs = fn }
+}
+
+// WithEncoderConfig 注入编码器定制：以基准 EncoderConfig 为入参的就地
+// 修改函数（如请求日志关闭 caller：置空 CallerKey）。构建期属性，初始
+// 构建与每次热更重建都生效；不改 yaml 配置面。传 nil 忽略。
+func WithEncoderConfig(mutate func(*zapcore.EncoderConfig)) Option {
+	return func(o *options) { o.encMutate = mutate }
+}
+
 // WithOnSwap 注入实例换新回调：初始构建与每次热更重建后以新实例调用一次
-// （锁外执行）。供外部绑定跟随实例的旁路设施——如把实例桥接为 observ
-// 默认日志器；不跟随热更的绑定会在重建后攥着已关闭的旧实例。回调收到
-// 原始实例（skip 0），调用面深度由回调方自行校准。
+// （锁外执行）。供外部绑定跟随实例的旁路设施；不跟随热更的绑定会在重建
+// 后攥着已关闭的旧实例。回调收到原始实例（skip 0），调用面深度由回调方
+// 自行校准。（observ 默认日志器的接管不走此回调——稳定桥包装 kit，
+// 与实例换新正交，见 Log.New。）
 func WithOnSwap(fn func(*zap.Logger)) Option {
 	return func(o *options) { o.onSwap = fn }
 }
@@ -63,10 +84,11 @@ type kitState struct {
 	curSkip1    atomic.Pointer[zap.Logger] // 跳一层封装帧的实例（kit 调用面专用）
 	cfg         Config                     // 当前生效配置（收敛判断基准）
 	level       zap.AtomicLevel
-	extra       []zapcore.Core    // WithCore 注入的旁路 core（每次构建都并联）
-	sinkClose   func()            // 当前 sink 句柄回收
-	watchCancel func()            // WithWatch 注入的订阅取消（nil = 未注入）
-	onSwap      func(*zap.Logger) // WithOnSwap 注入的换新回调（nil = 未注入）
+	extra       []zapcore.Core               // WithCore 注入的旁路 core（每次构建都并联）
+	encMutate   func(*zapcore.EncoderConfig) // WithEncoderConfig 注入（构造期冻结，每次构建生效）
+	sinkClose   func()                       // 当前 sink 句柄回收
+	watchCancel func()                       // WithWatch 注入的订阅取消（nil = 未注入）
+	onSwap      func(*zap.Logger)            // WithOnSwap 注入的换新回调（nil = 未注入）
 }
 
 // LoggerKit 是日志构建产物与热更状态机的句柄：其他想自建 zap 日志的组件
@@ -94,7 +116,8 @@ func NewLogger(cfg Config, opts ...Option) (LoggerKit, error) {
 	st := &kitState{cfg: cfg}
 	st.level = zap.NewAtomicLevelAt(parsed)
 	st.extra = o.extra
-	logger, sinkClose, err := buildLogger(cfg, &st.level, st.extra)
+	st.encMutate = o.encMutate
+	logger, sinkClose, err := buildLogger(cfg, &st.level, st.extra, st.encMutate)
 	if err != nil {
 		return LoggerKit{}, err
 	}
@@ -216,7 +239,7 @@ func (s *kitState) rebuild(c Config) error {
 	if err != nil {
 		return fmt.Errorf("zapc: invalid level %q", c.Level)
 	}
-	next, nextClose, err := buildLogger(c, &s.level, s.extra)
+	next, nextClose, err := buildLogger(c, &s.level, s.extra, s.encMutate)
 	if err != nil {
 		return err
 	}

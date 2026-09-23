@@ -69,14 +69,15 @@ otelc:
 
 - **恒建 provider**：endpoint 为空也安装全局 TracerProvider（trace_id 生成
   能力与导出无关）；endpoint 非空才挂批量 SpanProcessor + OTLP 导出器
-- **日志链路注入**：构造即以装饰型 observ.Logger 包一层——`Log` 前从 ctx
-  读有效 span，附加 `trace_id`/`span_id` 后委托原实现；ctx 携带
-  `request_id`（pkg/ctxkey）时附加 `request_id`（业务日志与链路日志由
-  此对齐，键归中立 pkg 定义——组件间零 import 不破）。此后动态读
-  `DefaultLogger()` 的调用全部自动携带，无 span 时零属性差异。构造期快照
-  持有者（早于本组件拿到 logger 的组件）保持旧面。装饰实现
-  `Rebind(observ.Logger)` 协议：zapc 接管与热更重建时经协议原地重绑
-  后端，装饰持续有效、接线顺序不受限
+- **日志链路注入（CtxLogAttrs）**：导出 `CtxLogAttrs(ctx)` 提取链路
+  属性（有效 span 出 `trace_id`/`span_id`，ctxkey 出 `request_id`，
+  皆无时零属性）。接 zapc 的标准形态：装配点以
+  `zapc.WithCtxAttrs(otelc.CtxLogAttrs)` 注入，链路注入在 zaplog
+  适配层完成——调用面无装饰层，caller 定位不随封装漂移（本组件不
+  import 模板 config，zapc 桥也不 import otel，装配点接线表达组合）。
+  未接 zapc 的项目：构造仍以装饰型 observ.Logger 兜底注入（slog 缺省
+  后端的链路对齐）；接了 zapc 时接管整体替换装饰，装配序恒为本组件
+  先、zapc 后（书写顺序即依赖顺序），无双份注入
 - **全局 W3C 传播器**：New 即 `otel.SetTextMapPropagator`（TraceContext +
   Baggage 复合）——traceparent 注入与提取的全局基线，httpserver 的
   链路中间件（otelhttp）与业务出站调用共用

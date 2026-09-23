@@ -13,9 +13,11 @@ import (
 
 // buildLogger 组装实例：文件输出（Format 编码 + lumberjack 轮转）与控制台
 // 输出（固定人类可读编码）各自成 core，与 WithCore 注入的旁路 core 一起
-// 经 NewTee 并联、共享同一动态级别。返回的关闭函数在热更换新与失败路径
-// 上就地回收句柄（旁路 core 的生命周期归提供方，不经此回收）。
-func buildLogger(cfg Config, lvl zapcore.LevelEnabler, extra []zapcore.Core) (*zap.Logger, func(), error) {
+// 经 NewTee 并联、共享同一动态级别。encMutate（WithEncoderConfig）在基准
+// EncoderConfig 上就地定制，每次构建都生效。返回的关闭函数在热更换新与
+// 失败路径上就地回收句柄（旁路 core 的生命周期归提供方，不经此回收）。
+func buildLogger(cfg Config, lvl zapcore.LevelEnabler, extra []zapcore.Core,
+	encMutate func(*zapcore.EncoderConfig)) (*zap.Logger, func(), error) {
 	var cores []zapcore.Core
 	var closers []func()
 	closeAll := func() {
@@ -43,11 +45,11 @@ func buildLogger(cfg Config, lvl zapcore.LevelEnabler, extra []zapcore.Core) (*z
 			Compress:   cfg.Compress,
 			LocalTime:  true, // 轮转文件名取本地时区，与控制台时间戳一致
 		}
-		cores = append(cores, zapcore.NewCore(newEncoder(cfg.Format), zapcore.AddSync(lj), lvl))
+		cores = append(cores, zapcore.NewCore(newEncoder(cfg.Format, encMutate), zapcore.AddSync(lj), lvl))
 		closers = append(closers, func() { _ = lj.Close() })
 	}
 	if cfg.LogToConsole {
-		cores = append(cores, zapcore.NewCore(newConsoleEncoder(), zapcore.Lock(os.Stdout), lvl))
+		cores = append(cores, zapcore.NewCore(newConsoleEncoder(encMutate), zapcore.Lock(os.Stdout), lvl))
 	}
 	cores = append(cores, extra...)
 	if len(cores) == 0 { // Validate 已挡，防御性兜底
@@ -79,15 +81,24 @@ func encoderConfig(colored bool) zapcore.EncoderConfig {
 	return enc
 }
 
-// newEncoder 构造文件 encoder：console 人类可读 / json 机器可解析。
-func newEncoder(format string) zapcore.Encoder {
+// newEncoder 构造文件 encoder：console 人类可读 / json 机器可解析；
+// encMutate 非 nil 时在基准配置上就地定制（如关 caller）。
+func newEncoder(format string, encMutate func(*zapcore.EncoderConfig)) zapcore.Encoder {
 	if format == "json" {
-		return zapcore.NewJSONEncoder(encoderConfig(false))
+		return zapcore.NewJSONEncoder(applyEnc(encoderConfig(false), encMutate))
 	}
-	return zapcore.NewConsoleEncoder(encoderConfig(false))
+	return zapcore.NewConsoleEncoder(applyEnc(encoderConfig(false), encMutate))
 }
 
 // newConsoleEncoder 控制台固定人类可读并加色，不随 Format 走 json。
-func newConsoleEncoder() zapcore.Encoder {
-	return zapcore.NewConsoleEncoder(encoderConfig(true))
+func newConsoleEncoder(encMutate func(*zapcore.EncoderConfig)) zapcore.Encoder {
+	return zapcore.NewConsoleEncoder(applyEnc(encoderConfig(true), encMutate))
+}
+
+// applyEnc 应用编码器定制（nil 透传基准）。
+func applyEnc(base zapcore.EncoderConfig, mutate func(*zapcore.EncoderConfig)) zapcore.EncoderConfig {
+	if mutate != nil {
+		mutate(&base)
+	}
+	return base
 }

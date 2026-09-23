@@ -17,7 +17,7 @@
   常量自述节名、实现 Section() 统一获取接口（AddComponent 校验接线一致）
 - 文件多到不利维护时可在组件目录下拆 `internal/` 子包，公共契约仍收敛于
   组件根包出口（httpserver 为范例：middleware / trust / metric / endpoint /
-  instance 均为 internal 实现细节，调用方只见根包 API）
+  instance / ctxlog 均为 internal 实现细节，调用方只见根包 API）
 - 组件包与同名第三方库冲突时，组件包名拼接 `c` 消解（c 即 component）：
   zap 日志组件的包是 `zapc`，与 `go.uber.org/zap` 的 import 互不干扰。
   软规则边界：第三方之间的撞名不适用，语义化命名兜底

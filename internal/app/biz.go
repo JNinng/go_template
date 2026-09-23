@@ -7,8 +7,14 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"path/filepath"
+
+	"go.uber.org/zap"
+
+	"go.uber.org/zap/zapcore"
 
 	"go_template/internal/biz"
 	"go_template/internal/components/greeter"
@@ -45,8 +51,28 @@ func setupBiz(t *config.Tree, r *runner.Runner, meta Meta) error {
 	// 接线即回落 slog 链路）；配置非法或输出打不开 → 引导失败。
 	// WithCore(tr.LogCore()) 无条件传参：otelc 未启用 OTLP 日志导出时
 	// LogCore 为 nil，zapc.WithCore(nil) 被忽略，接线无需分支。
+	// WithCtxAttrs(otelc.CtxLogAttrs) 把链路注入沉入 zaplog 适配层：
+	// 走 observ 默认日志器的调用自动带 trace_id/span_id/request_id，
+	// caller 定位不随封装漂移（须在 zapc 之前装配 otelc，即上文顺序）。
 	_, err = AddComponent(t, r, zapc.SectionName, zapc.Default(),
-		func(c zapc.Config) (*zapc.Log, error) { return zapc.New(c, zapc.WithCore(tr.LogCore())) })
+		func(c zapc.Config) (*zapc.Log, error) {
+			return zapc.New(c,
+				zapc.WithCore(tr.LogCore()),
+				zapc.WithCtxAttrs(otelc.CtxLogAttrs))
+		})
+	if err != nil {
+		return err
+	}
+
+	// 请求日志：独立 zapc 实例（非组件，无生命周期启停、只有 sink 回收）。
+	// 配置整体继承 zapc 节（level 热更跟随、format/轮转/控制台开关同源），
+	// 仅两处派生：path 固定为 zapc.path 同目录的 req.log（path 为空时
+	// 兜底 log/req.log——访问日志落盘是独立诉求，不随控制台形态缩水）；
+	// caller 关闭（访问日志 caller 恒为中间件同一行，无定位价值）。
+	// 热更经 config.Watch 派生转发（收敛判断在 zapc 侧照常生效）。
+	// 停机钩子先于 httpserver 注册：逆序停止时 httpserver 排空完成后才
+	// 刷盘关闭 sink，排空期的访问日志不丢。
+	accessLog, err := bindRequestLogger(t, r)
 	if err != nil {
 		return err
 	}
@@ -60,11 +86,14 @@ func setupBiz(t *config.Tree, r *runner.Runner, meta Meta) error {
 
 	// httpserver：业务 HTTP Server（中间件链、/livez /readyz /version
 	// /debug/pprof，promc 的 /metrics /health 一并挂进业务端口）。
+	// WithAccessLogger(accessLog) 传方法值（bindRequestLogger 返回的
+	// Current）：每请求原子取当前实例，请求日志热更重建自动跟随。
 	hs, err := AddComponent(t, r, httpserver.SectionName, httpserver.Default(),
 		func(c httpserver.Config) (*httpserver.Server, error) {
 			return httpserver.New(c,
 				httpserver.WithService(meta.Name, meta.Env, version.Version),
-				httpserver.WithProm(pm))
+				httpserver.WithProm(pm),
+				httpserver.WithAccessLogger(accessLog))
 		})
 	if err != nil {
 		return err
@@ -115,4 +144,47 @@ func setupBiz(t *config.Tree, r *runner.Runner, meta Meta) error {
 	// 跨组件健康检查由装配点胶水登记（组件间零 import）：
 	// pm.RegisterCheck("nacos", nc.Check)
 	return nil
+}
+
+// bindRequestLogger 构造 httpserver 的请求日志记录器：独立 zapc 实例
+// （配置继承 zapc 节、热更跟随、等级独立门控），path 派生为 req.log、
+// caller 关闭。返回 getter（传 WithAccessLogger）——zapc.LoggerKit 的
+// Current 方法值即热更安全的取用。sink 回收注册为停机钩子（须在
+// httpserver 之前调用本函数，保证逆序停止时先停 server 再关 sink）。
+func bindRequestLogger(t *config.Tree, r *runner.Runner) (func() *zap.Logger, error) {
+	// 节句柄取初值（与 AddComponent 的解码同路径）；Watch 挂派生转发。
+	sec := config.Bind(t, zapc.SectionName, zapc.Default())
+	base, err := sec.Get()
+	if err != nil {
+		return nil, err
+	}
+
+	// 派生规则：path → 同目录 req.log（path 为空兜底 log/req.log）；
+	// 其余字段（level/format/轮转/控制台）原样继承，热更整体跟随。
+	derive := func(c zapc.Config) zapc.Config {
+		dir := "log"
+		if c.Path != "" {
+			dir = filepath.Dir(c.Path)
+		}
+		c.Path = filepath.Join(dir, "req.log")
+		return c
+	}
+	// caller 关闭是编码层定制（构建期属性，重建自动带上），不经派生：
+	// 访问日志 caller 恒为中间件同一行，无定位价值。
+	noCaller := func(e *zapcore.EncoderConfig) { e.CallerKey = "" }
+
+	watch := func(apply func(zapc.Config) error) (cancel func()) {
+		return config.Watch(t, zapc.SectionName, zapc.Default(),
+			func(c zapc.Config) error { return apply(derive(c)) })
+	}
+	kit, err := zapc.NewLogger(derive(base), zapc.WithWatch(watch), zapc.WithEncoderConfig(noCaller))
+	if err != nil {
+		return nil, err
+	}
+	r.Add("req-log", nil, func(context.Context) error {
+		_ = kit.Current().Sync()
+		kit.Close()
+		return nil
+	})
+	return kit.Current, nil
 }

@@ -274,9 +274,46 @@ func TestNew_LogsWithoutEndpointRejected(t *testing.T) {
 	}
 }
 
-// Rebind 协议（zapc 接管/热更重建的存活基础）：重复安装不叠装饰；
-// 装饰经 Rebind 换绑后端后链路注入照常、旧后端不再接收。
-func TestLogTrace_RebindProtocol(t *testing.T) {
+// 链路属性提取器：有效 span 出 trace_id/span_id、ctxkey 出 request_id、
+// 皆无时为零属性。zapc.WithCtxAttrs 与 traceLogger（slog 兜底）共用。
+func TestCtxLogAttrs(t *testing.T) {
+	restoreGlobals(t)
+	tr, err := New(Default()) // 安装真实 TracerProvider（否则全局 span 无效）
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tr.Stop(context.Background()) })
+
+	if got := CtxLogAttrs(context.Background()); got != nil {
+		t.Fatalf("bare ctx must yield nil, got %v", got)
+	}
+
+	ctx, span := otel.Tracer("otelc-test").Start(context.Background(), "op")
+	defer span.End()
+	byKey := map[string]string{}
+	for _, a := range CtxLogAttrs(ctx) {
+		byKey[a.Key] = a.Value.String()
+	}
+	if byKey["trace_id"] != span.SpanContext().TraceID().String() ||
+		byKey["span_id"] != span.SpanContext().SpanID().String() {
+		t.Fatalf("trace attrs mismatch: %v", byKey)
+	}
+	if _, ok := byKey["request_id"]; ok {
+		t.Fatalf("request_id must be absent without ctxkey: %v", byKey)
+	}
+
+	byKey = map[string]string{}
+	for _, a := range CtxLogAttrs(ctxkey.WithRequestID(ctx, "req-1")) {
+		byKey[a.Key] = a.Value.String()
+	}
+	if byKey["request_id"] != "req-1" || byKey["trace_id"] == "" {
+		t.Fatalf("request_id + trace attrs expected: %v", byKey)
+	}
+}
+
+// slog 缺省后端的兜底注入：重复安装不叠装饰，链路日志恒带 trace 属性
+// （接了 zapc 时接管整体替换本装饰，注入由适配层经 WithCtxAttrs 完成）。
+func TestLogTrace_SlogFallbackDecoration(t *testing.T) {
 	restoreGlobals(t)
 	buf1 := newLogBackend(t)
 	tr, err := New(Default())
@@ -289,32 +326,16 @@ func TestLogTrace_RebindProtocol(t *testing.T) {
 
 	ctx, span := otel.Tracer("otelc-test").Start(context.Background(), "op")
 	defer span.End()
-	observ.DefaultLogger().Log(ctx, slog.LevelInfo, "before_rebind")
+	observ.DefaultLogger().Log(ctx, slog.LevelInfo, "decorated")
 	wantTrace := span.SpanContext().TraceID().String()
 	if got := strings.Count(buf1.String(), wantTrace); got != 1 {
 		t.Fatalf("single decoration expected, trace_id hits = %d:\n%s", got, buf1.String())
 	}
-
-	// zapc 接管路径：结构化探测 Rebind 协议并原地换绑
-	var buf2 bytes.Buffer
-	backend := observ.NewSlogLogger(slog.New(slog.NewTextHandler(&buf2, nil)))
-	cur, ok := observ.DefaultLogger().(interface{ Rebind(observ.Logger) })
-	if !ok {
-		t.Fatal("decorated default must implement the Rebind protocol")
-	}
-	cur.Rebind(backend)
-
-	observ.DefaultLogger().Log(ctx, slog.LevelInfo, "after_rebind")
-	if !strings.Contains(buf1.String(), "before_rebind") || strings.Contains(buf1.String(), "after_rebind") {
-		t.Fatalf("old backend must not receive post-rebind logs:\n%s", buf1.String())
-	}
-	if line := buf2.String(); !strings.Contains(line, "after_rebind") || !strings.Contains(line, wantTrace) {
-		t.Fatalf("new backend must receive trace-injected logs: %q", line)
-	}
 }
 
 // 组合回归：otelc 先接线、zapc 后接管（logs_enabled 配方的接线顺序）——
-// 链路注入经 Rebind 协议在接管与热更重建后均保持有效。
+// 接管整体替换装饰，链路注入由 WithCtxAttrs 在 zaplog 适配层完成，
+// 热更重建后保持有效（WithCtxAttrs 传参即模板 biz 接线）。
 func TestLogTrace_SurvivesZapcTakeoverAndRebuild(t *testing.T) {
 	restoreGlobals(t)
 	newLogBackend(t)
@@ -328,7 +349,7 @@ func TestLogTrace_SurvivesZapcTakeoverAndRebuild(t *testing.T) {
 	cfg := zapc.Default()
 	cfg.Path = filepath.Join(t.TempDir(), "zapc.log")
 	cfg.LogToConsole = false
-	z, err := zapc.New(cfg)
+	z, err := zapc.New(cfg, zapc.WithCtxAttrs(CtxLogAttrs))
 	if err != nil {
 		t.Fatal(err)
 	}

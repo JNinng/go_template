@@ -13,9 +13,10 @@ RequestID → 请求体上限）。它消费模板全部可观测设施，四个
   `enabled` 开关：单一旋钮，"handler 库 + 可选独立 server"的语义自然
   涌现。promc 原缺省 `:9090` 是破坏性变更（模板定位可接受；需要独立
   端口显式配置）。
-- **强绑定走全局单例 + 接口化注入口**：httpserver 消费 zapc（`zap.L()`）、
-  otelc（otel 全局 TracerProvider）经既有全局，不加新注入面——与
-  zapc 接管 observ 默认、otelc 装配全局 provider 的既有哲学一致；
+- **强绑定走全局单例 + 接口化注入口**：httpserver 消费 otelc（otel
+  全局 TracerProvider）经既有全局；请求日志经 `WithAccessLogger` 注入
+  独立记录器、未注入回落 zap 全局（初版直调 `zap.L()`，后演进为注入
+  并独立分文件，见 ADR-0006）；
   promc 的 handler 与 registry 经 `WithProm(PromProvider)` 注入：
   定义在 httpserver 的窄接口（结构化类型），`*promc.Prom` 天然满足，
   **httpserver 不 import promc**——ADR-0001 组件零依赖不破，"强绑定"

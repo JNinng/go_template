@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/rs/cors"
+	"go.uber.org/zap"
 
 	"go_template/internal/components/httpserver/internal/metric"
 	"go_template/internal/components/httpserver/internal/trust"
@@ -25,6 +26,17 @@ type Deps struct {
 	Skip        func(path string) bool // 跳过清单（不记访问日志不计指标；span 照起）
 	BodyLimit   func() int64           // 请求体上限（<=0 不限制）
 	CORS        func() *cors.Cors      // 当前跨域实例（nil 直通，New 必装故不可达）
+	AccessLog   func() *zap.Logger     // 请求日志记录器（每调用取当前实例，跟随热更；nil/返回 nil 回落 zap 全局）
+}
+
+// accessLogger 取请求日志记录器（未注入或返回 nil 时回落 zap 全局）。
+func (d Deps) accessLogger() *zap.Logger {
+	if d.AccessLog != nil {
+		if l := d.AccessLog(); l != nil {
+			return l
+		}
+	}
+	return zap.L()
 }
 
 // Chain 按既定链序组装中间件并包裹 next（路由表）。

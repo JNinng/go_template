@@ -29,28 +29,28 @@ type Log struct {
 }
 
 // New 构造即校验并构建日志实例（打开 sink），并接管 observ 默认日志器
-// （zaplog 桥经 WithOnSwap 跟随热更重建自动重绑，模板自持的 log: 节由此
-// 被遮蔽）；opts 透传 kit（如 WithCore 并入 OTLP 日志导出 core）。注意：
-// 接管依赖内置的 WithOnSwap 回调，opts 再传自定义 WithOnSwap 会将其顶掉
-// （Option 后者胜）、接管即失效。失败即未启动，已开句柄就地关闭，无需
-// 调用方清理。
+// （模板自持的 log: 节由此被遮蔽）；opts 透传 kit（如 WithCore 并入
+// OTLP 日志导出 core、WithCtxAttrs 并入链路注入）。失败即未启动，已开
+// 句柄就地关闭，无需调用方清理。
+//
+// 接管形态是稳定桥（zaplog.NewDynamic 包装 kit.CurrentSkip1）：桥身份
+// 恒定，热更重建只换 kit 内实例、桥自动跟随——SetDefaultLogger 在进程
+// 内一次性完成，接管不感知既有默认日志器的形态。caller skip 在实例侧烘焙
+// （curSkip1 = AddCallerSkip(1)，恒补偿 zaplog 适配帧），调用面无装饰
+// 层，定位不随封装漂移。链路注入由 WithCtxAttrs 传入提取函数（装配点
+// 传 otelc.CtxLogAttrs），在适配层内部完成——本组件不 import otel。
+// 未传 WithCtxAttrs 时接管会整体替换此前安装的 observ 默认（含装饰），
+// 链路注入须由装配点显式传入，组件间不互相探测。
 func New(cfg Config, opts ...Option) (*Log, error) {
-	kit, err := NewLogger(cfg, append([]Option{
-		WithOnSwap(func(l *zap.Logger) {
-			bridge := zaplog.New(l.WithOptions(zap.AddCallerSkip(1)))
-			// 接管尊重已装装饰器：默认日志器实现 Rebind 协议（如 otelc
-			// 的链路注入装饰）时原地重绑后端，装饰在接管与热更重建后
-			// 保持有效；未实现者维持整体替换
-			if cur, ok := observ.DefaultLogger().(interface{ Rebind(observ.Logger) }); ok {
-				cur.Rebind(bridge)
-				return
-			}
-			observ.SetDefaultLogger(bridge)
-		}),
-	}, opts...)...)
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+	kit, err := NewLogger(cfg, opts...)
 	if err != nil {
 		return nil, err
 	}
+	observ.SetDefaultLogger(zaplog.NewDynamic(kit.CurrentSkip1, zaplog.WithCtxAttrs(o.ctxAttrs)))
 	return &Log{kit: kit}, nil
 }
 

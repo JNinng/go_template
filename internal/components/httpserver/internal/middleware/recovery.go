@@ -26,7 +26,7 @@ func recovery(d Deps, next http.Handler) http.Handler {
 			if p == nil {
 				return
 			}
-			zap.L().Error("httpserver_panic_recovered",
+			d.accessLogger().Error("httpserver_panic_recovered",
 				zap.String("method", r.Method),
 				zap.String("path", safe.Truncate(r.URL.Path, 512)),
 				zap.Int("status_code", http.StatusInternalServerError),

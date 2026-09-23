@@ -1,9 +1,10 @@
 // Package httpserver 是内置组件库的业务 HTTP Server 组件：标准库
 // ServeMux 路由 + 可观测中间件链（Recovery → CORS → 访问日志/指标 →
 // otelhttp tracing → RequestID → 请求体上限），强绑定模板可观测设施
-// ——日志走 zapc 安装的 zap 全局（zap.L()），tracing 走 otelc 安装的
-// otel 全局，指标注册到 promc 的私有 registry（经 WithProm 注入的
-// PromProvider），排空摘流复用 promc 健康检查聚合。
+// ——请求日志经 WithAccessLogger 注入独立记录器（未注入回落 zap
+// 全局），tracing 走 otelc 安装的 otel 全局，指标注册到
+// promc 的私有 registry（经 WithProm 注入的 PromProvider），排空摘流
+// 复用 promc 健康检查聚合。
 //
 // 承重行为：
 //
@@ -46,7 +47,9 @@ import (
 	"github.com/jninng/observ"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/cors"
+	"go.uber.org/zap"
 
+	"go_template/internal/components/httpserver/internal/ctxlog"
 	"go_template/internal/components/httpserver/internal/endpoint"
 	"go_template/internal/components/httpserver/internal/instance"
 	"go_template/internal/components/httpserver/internal/metric"
@@ -71,10 +74,11 @@ type PromProvider interface {
 type Option func(*options)
 
 type options struct {
-	service string // 服务名（实例 ID 前缀；启动日志）
-	env     string // 环境声明（启动日志）
-	version string // 版本（启动日志）
-	prom    PromProvider
+	service   string // 服务名（实例 ID 前缀；启动日志）
+	env       string // 环境声明（启动日志）
+	version   string // 版本（启动日志）
+	prom      PromProvider
+	accessLog func() *zap.Logger // 请求日志记录器（WithAccessLogger 注入；nil 回落 zap 全局）
 }
 
 // WithService 设置服务标识：服务名进实例 ID（{service}:{hostname}）与
@@ -90,6 +94,25 @@ func WithService(name, env, ver string) Option {
 // readiness 仅反映摘流信号。
 func WithProm(p PromProvider) Option {
 	return func(o *options) { o.prom = p }
+}
+
+// WithAccessLogger 注入请求日志记录器：访问日志与 panic 日志走它，
+// 与业务日志分文件（装配点从 zapc 节派生独立实例，如固定写 req.log）。
+// getter 每请求调用、须返回当前生效实例（zapc.LoggerKit.Current 方法
+// 值即热更安全的取用）；nil 或返回 nil 回落 zap 全局。ctx 日志
+// （LoggerFrom）不经此通道——业务日志恒走 zap 全局（应用流），req.log
+// 只放访问记录。
+func WithAccessLogger(get func() *zap.Logger) Option {
+	return func(o *options) { o.accessLog = get }
+}
+
+// LoggerFrom 取请求作用域日志记录器：zap 全局逐请求派生、预绑定
+// request_id / trace_id / span_id（RequestID 层挂进 ctx），业务 handler
+// 深处免逐层穿字段。非请求语境回落未富化的 zap 全局（缺链路字段即
+// "不在请求链路内"的信号）。注意：直调 zap.L() 与本访问器同源但无
+// 预绑定字段——请求内日志一律走本访问器。
+func LoggerFrom(ctx context.Context) *zap.Logger {
+	return ctxlog.From(ctx)
 }
 
 // Server 是业务 HTTP Server 的组件壳：New 构造并挂载内置端点（不监听），

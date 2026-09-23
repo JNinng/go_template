@@ -4,8 +4,14 @@
 （Recovery → CORS → 访问日志/指标 → otelhttp tracing → RequestID →
 请求体上限），强绑定模板可观测设施：
 
-- **日志**：访问日志直调 `zap.L()`（zapc 接管的全局）；低频生命周期日志
-  走 observ（`httpserver_server_started` / `_stopping` / `_stopped`）
+- **请求日志**：访问日志与 panic 日志走 `WithAccessLogger` 注入的独立
+  记录器（getter 每请求取当前实例，热更重建自动跟随；未注入回落
+  `zap.L()`）。独立实例由装配点从 zapc 节派生（配置继承、`path` 固定
+  同目录 `req.log`、caller 关闭、等级独立门控）。业务日志不经此通道
+  ——`LoggerFrom(ctx)` 由 zap 全局逐请求派生、预绑定
+  `request_id`/`trace_id`/`span_id`，业务日志归应用流，req.log 只放
+  访问记录（直调 `zap.L()` 同源但无预绑定字段）。低频生命周期日志走
+  observ（`httpserver_server_started` / `_stopping` / `_stopped`）
 - **tracing**：otelhttp 经 otel 全局 TracerProvider（otelc 装配）；可信
   来源继承 `traceparent` 为父 span，不可信来源新建 root span 并把外部
   traceparent 转为 **Link**（防伪造污染拓扑，排查仍可回溯）；span 名

@@ -21,6 +21,7 @@ func (s *Server) buildHandler() http.Handler {
 		Skip:        s.skipObservability,
 		BodyLimit:   func() int64 { return s.bodyLimit.Load() },
 		CORS:        s.currentCORS,
+		AccessLog:   s.opt.accessLog,
 	}, s.mux)
 }
 
