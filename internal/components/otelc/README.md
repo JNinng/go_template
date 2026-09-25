@@ -20,7 +20,7 @@ collector（本地开发用 Grafana Alloy / otel-collector 皆可）。同时安
 `contrib/bridges/otelzap`（zap 桥）+ `github.com/jninng/observ`。
 删除本目录并 `go mod tidy` 后即从 go.mod 清除（整棵 otel 依赖树随之清零；
 zap 桥所需 zap 已随 zapc 组件在树内）。
-要求 Go 1.25+（otel v1.43 的最低版本）。
+要求 Go 1.25+（otel 依赖树的最低版本要求）。
 
 ## 接入（复制即用，无需 go get——组件已在本模块内）
 
@@ -28,7 +28,7 @@ zap 桥所需 zap 已随 zapc 组件在树内）。
 logs_enabled 时须先于 zapc 接线取 LogCore，见下）：
 
 ```go
-tr, err := AddComponent(t, r, "otelc", otelc.Default(),
+tr, err := AddComponent(t, r, otelc.SectionName, otelc.Default(),
 	func(c otelc.Config) (*otelc.Tracer, error) {
 		return otelc.New(c, otelc.WithService(meta.Name, meta.Env, version.Version)) // 资源标识：应用元数据 + 构建元数据
 	})
@@ -42,7 +42,7 @@ zapc 经闭包把 `tr.LogCore()` 并进 tee（未启用时 LogCore 为 nil，
 `WithCore(nil)` 被忽略，接线无需分支）：
 
 ```go
-logc, err := AddComponent(t, r, "zapc", zapc.Default(),
+logc, err := AddComponent(t, r, zapc.SectionName, zapc.Default(),
 	func(c zapc.Config) (*zapc.Log, error) {
 		return zapc.New(c, zapc.WithCore(tr.LogCore()))
 	})

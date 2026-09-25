@@ -43,6 +43,7 @@ promc——组件间零依赖约定不破。
 | `internal/metric` | 预置 prometheus 指标（requests_total / duration_seconds） |
 | `internal/endpoint` | 内置端点（探活/就绪/版本/pprof） |
 | `internal/instance` | 实例 ID 解析（InstanceID 的实现） |
+| `internal/ctxlog` | 请求作用域记录器的 ctx 通道（`LoggerFrom` 的实现；独立子包避免根包与 middleware 的 import 环） |
 
 ## 接入（复制即用，无需 go get——组件已在本模块内）
 
@@ -50,11 +51,14 @@ promc——组件间零依赖约定不破。
 在前，本组件最后接线）：
 
 ```go
-pm, err := AddComponent(t, r, "promc", promc.Default(), promc.New)
+pm, err := AddComponent(t, r, promc.SectionName, promc.Default(), promc.New)
 if err != nil {
     return err
 }
-hs, err := AddComponent(t, r, "httpserver", httpserver.Default(),
+// 请求日志：再注入 WithAccessLogger(accessLog)——独立实例由装配点从
+// zapc 节派生（实现见 internal/app/biz.go 的 bindRequestLogger）；
+// 未注入回落 zap.L()。
+hs, err := AddComponent(t, r, httpserver.SectionName, httpserver.Default(),
     func(c httpserver.Config) (*httpserver.Server, error) {
         return httpserver.New(c,
             httpserver.WithService(meta.Name, meta.Env, version.Version),

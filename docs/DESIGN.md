@@ -36,13 +36,16 @@
 ## 2. 验收标准
 
 1. **落地 5 步**：复制 → 改 module 名 → build → run → Ctrl+C 优雅退出（退出码 0）
-2. **引入组件触点**：内置组件直接在装配入口接线（无需 go get，见各组件 README）；组件资产 `go get` + 装配入口一处（远程源 →
-   `setupSources`；业务组件 → 业务入口 `biz.go` 的 `AddComponent`，或等价手写展开）+ 配置节粘贴（无配置组件省略）；*
-   *不修改模板任何既有文件**（`setupSources` 为预留空实现；`setupBiz` 内置占位业务 `biz.Hello`，替换该包即接入真实业务）
+2. **引入组件触点**：内置组件已预接线，取舍即增删 `biz.go` 接线行（无需 go get，见各组件 README）；组件资产 `go get` +
+   装配入口一处（远程源 → `setupSources`；业务组件 → 业务入口 `biz.go` 的 `AddComponent`，或等价手写展开）+ 配置节粘贴（无
+   配置组件省略）；**改动只落在两个装配入口与配置节**（`setupSources` 为预留空实现；`biz.go` 内置可观测组件接线、演示路由
+   与占位业务 `biz.Hello`，替换 `internal/biz` 包即接入真实业务）
 3. **依赖随删随清**：模板与内置组件的依赖随组件进入 go.mod；删除不需要的组件目录并 `go mod tidy` 后，go.mod
    直接依赖即收敛为实际使用集（骨架基线四件：cobra、gopkg.in/yaml.v3、fsnotify、observ）
-4. **热更可演示**：修改 `log.level` 保存即生效（无需重启）；引入示例组件（internal/components/greeter）后其配置节热更同样可演示
-5. **占位基线**：模板原样运行 = announce 启动行 + 占位业务一行（`biz_started`）→ 静默等待信号 → 预算内干净退出；两组件同场演示多组件组合与启停顺序
+4. **热更可演示**：修改 `zapc.level` 保存即生效（默认接线 zapc，级别即时；移除 zapc 接线回落 slog 链路后 `log.level`
+   同为热更）；预接线的示例组件（internal/components/greeter）其配置节热更同样可演示
+5. **占位基线**：模板原样运行 = announce 启动行 + 可观测三件套与 httpserver（:8080）启动 + greeter 周期问候 + 占位业务
+   一行（`biz_started`）→ 等待信号 → 预算内干净退出；多组件同场演示组合与启停顺序
 6. **fail-fast**：任一组件构造或启动失败 → 已启动者逆序停止 → 退出码 1
 7. **模板自带测试**：`go test ./...` 覆盖难点单测——config 包（合并分层、from_env 收集与类型推断、严格解码、Watch
    收敛/合并/取消、多环境文件名推导）、runner（顺序启动/逆序停止、Start 失败回滚、停机预算）、logging（level 热更）、`AddComponent`
@@ -126,7 +129,8 @@ main.go（3 行：internal/cmd.Execute()）
 └── docs/                      # DESIGN.md / ASSETS.md / adr/
 ```
 
-缺省 `configs/config.yaml` 内容（log 三字段全量写出，文档价值优先；`env` 不写即不选多环境文件）：
+模板骨架的最小配置（log 三字段全量写出，文档价值优先；`env` 不写即不选多环境文件）。随模板分发的 `configs/config.yaml`
+在此基础上追加已预接线组件的节示例（zapc / otelc / promc / httpserver / greeter / biz，以仓库文件为准）：
 
 ```yaml
 app:
@@ -329,7 +333,8 @@ func setupLogging(t *config.Tree, r *runner) error {
     if err != nil { return err }
     lvl := new(slog.LevelVar)
     lvl.Set(parseLevel(cfg.Level))
-    w, closeFn := outputWriter(cfg.Output)                  // stdout 或文件（仅追加）
+    w, closeFn, err := outputWriter(cfg.Output)             // stdout 或文件（仅追加）
+    if err != nil { return err }
     slog.SetDefault(slog.New(buildHandler(cfg.Format, lvl, w)))
     observ.SetDefaultLogger(observ.NewSlogLogger(slog.Default()))
     if closeFn != nil {                                     // output 为文件：停机关闭钩子（逆序最后执行）
@@ -443,8 +448,8 @@ type Runner struct {
     totalBudget  time.Duration // 停机总预算
 }
 
-// New 创建空运行器。
-func New() *Runner { return &Runner{} }
+// New 创建运行器并预置缺省预算（单步 15s、总 30s）。
+func New() *Runner { return &Runner{stepTimeout: defaultStepTimeout, totalBudget: defaultTotalBudget} }
 
 // Add 注册一对生命周期；start / stop 均可为 nil（nil 跳过）。
 // 注册顺序即启动顺序，逆序即停止顺序。

@@ -16,7 +16,7 @@ nacos 双角色客户端，两角色分立配置、独立客户端、互不共�
 
 ```go
 func setupSources(t *config.Tree) error {
-	cfg, err := config.Decode(t, "nacos", nacos.Default())
+	cfg, err := config.Decode(t, nacos.SectionName, nacos.Default())
 	if err != nil {
 		return err
 	}
@@ -31,7 +31,7 @@ func setupSources(t *config.Tree) error {
 **组件触点** `internal/app/biz.go`（注册中心，serviceName 传 `meta.Name`）：
 
 ```go
-cfg, err := config.Decode(t, "nacos", nacos.Default())
+cfg, err := config.Decode(t, nacos.SectionName, nacos.Default())
 if err != nil {
 	return err
 }

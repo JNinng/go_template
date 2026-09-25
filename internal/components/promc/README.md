@@ -21,7 +21,7 @@ Meter 时构造期回落本出口，免逐组件穿线。不接线时组件埋�
 **组件触点** `internal/app/biz.go`：
 
 ```go
-pm, err := AddComponent(t, r, "promc", promc.Default(), promc.New)
+pm, err := AddComponent(t, r, promc.SectionName, promc.Default(), promc.New)
 if err != nil {
     return err // 配置非法在此报错（退出码 1）
 }

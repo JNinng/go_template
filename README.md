@@ -24,7 +24,8 @@ Go 长驻服务的项目模板：命令、应用元数据、配置（两层文�
 
 - 基础文件 `configs/config.yaml`（`--config` 可改）；`--env prod` 选定 `config.prod.yaml` 叠加
 - 合并分层：代码默认值 < 基础文件 < 多环境文件 < 远程源 < `from_env` 绑定 < flag 覆盖
-- `log.level` 改文件即热更生效；`from_env` 在节内声明"配置键 ← 环境变量"（重启生效）
+- 热更：默认接线的 zapc 组件 `zapc.level` 改文件即时生效（移除 zapc 接线回落 slog 链路后，模板自持 `log.level` 同为热更）；
+  `from_env` 在节内声明"配置键 ← 环境变量"（重启生效）
 - 退出码：优雅停机 0；构造/启动失败、停机超预算、第二信号、引导失败均为 1
 
 完整契约（配置 API、组件约定、资产准入）见 [docs/DESIGN.md](docs/DESIGN.md)。
@@ -34,7 +35,8 @@ Go 长驻服务的项目模板：命令、应用元数据、配置（两层文�
 模板与组件资产共同构成"资产积累库"：模板是骨架，资产是积累。清单与准入标准见 [docs/ASSETS.md](docs/ASSETS.md)。
 
 - **内置组件**（随模板分发，复制即用）：约定示范样例 greeter、nacos 双角色客户端（配置源 + 服务注册）、zapc
-  日志组件（热更日志器），取舍与接入见 [internal/components/README.md](internal/components/README.md)
+  日志组件（热更日志器）、可观测组件 otelc / promc / httpserver（链路追踪、指标健康、业务 HTTP Server；后三者在
+  biz.go 默认预接线），取舍与接入见 [internal/components/README.md](internal/components/README.md)
 - **组件资产**（独立 Go module，`go get` 引入）：清单与准入标准见 [docs/ASSETS.md](docs/ASSETS.md)
 
 ## 文档

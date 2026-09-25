@@ -16,7 +16,7 @@
 **组件触点** `internal/app/biz.go`：
 
 ```go
-logc, err := AddComponent(t, r, "zapc", zapc.Default(),
+logc, err := AddComponent(t, r, zapc.SectionName, zapc.Default(),
 	func(c zapc.Config) (*zapc.Log, error) { return zapc.New(c) })
 if err != nil {
 	return err // 配置非法或输出打不开在此报错（退出码 1）
@@ -34,7 +34,7 @@ import 模板 config 包，节的选择留在装配点）：
 ```go
 kit, err := zapc.NewLogger(cfg, zapc.WithWatch(
 	func(apply func(zapc.Config) error) func() {
-		return config.Watch(t, "zapc", zapc.Default(), apply)
+		return config.Watch(t, zapc.SectionName, zapc.Default(), apply)
 	}))
 // kit.Current() 始终返回当前实例；节变更自动走 kit.Apply 择路
 ```
