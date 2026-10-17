@@ -7,7 +7,7 @@
 //	属性：slog.Attr 逐个显式转 zap Field，键名原样透传；LogValuer 在
 //	编码前解析（对齐 slog handler 语义）；除 KindAny 兜底外无反射；
 //	组属性以点号前缀展平，空名组内联。
-//	ctx：WithCtxAttrs 注入提取器时，每次写入前从 ctx 提取属性（链路
+//	ctx：WithCtxAttrsBridge 注入提取器时，每次写入前从 ctx 提取属性（链路
 //	注入 trace_id/span_id/request_id 等）追加在调用方属性之后。注入做
 //	在桥内部——调用面无装饰层；提取器须并发安全且快速返回。
 //

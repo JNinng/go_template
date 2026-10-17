@@ -1,5 +1,9 @@
 # httpserver 可观测聚合：单端口收编、接口化强绑定与 Link 语义
 
+> **修订**：指标埋点面已由 observ.Meter 迁至 otel metric API（ADR-0007）。
+> 本文"契约无 label 维度"的理由随之失效；"基础设施直连 prometheus 原生
+> API、与业务埋点面分立"的决策不变，理由为切片标签的原生形态最直接。
+
 内置组件库新增 **httpserver**（业务 HTTP Server）：标准库 ServeMux 路由
 + 预置可观测中间件链（Recovery → CORS → 访问日志/指标 → otelhttp →
 RequestID → 请求体上限）。它消费模板全部可观测设施，四个非常规决策
@@ -23,12 +27,9 @@ RequestID → 请求体上限）。它消费模板全部可观测设施，四个
   由装配点接线表达。
 - **指标直连 prometheus 原生 API，不走统一埋点面**：method/pattern/
   status_class 切片标签在原生 CounterVec/HistogramVec 上表达最直接。
-  基础设施组件用原生 API，业务埋点走统一埋点面——两类调用面分立。
-  （埋点面当前为 otel metric API，见 ADR-0007；本文书写时该理由是
-  observ.Meter 契约无 label 维度，理由已随迁移更新，分立决策不变。）
-  pattern 标签用
-  ServeMux 匹配模板（Go 1.23+ `r.Pattern`）而非原始 path，基数受路由
-  数约束。
+  基础设施组件用原生 API，业务埋点走统一埋点面（otel metric API，
+  见 ADR-0007）——两类调用面分立。pattern 标签用 ServeMux 匹配模板
+  （Go 1.23+ `r.Pattern`）而非原始 path，基数受路由数约束。
 - **可信端点判定复用 trusted_proxies，Link 语义由 otelhttp 原生承担**：
   RemoteAddr ∈ trusted_proxies → 继承 traceparent 为父 span（内部链路
   串联）；否则走 otelhttp `WithPublicEndpointFn` 路径——`WithNewRoot`

@@ -2,9 +2,9 @@
 
 把 Prometheus 指标暴露装配为生命周期组件：私有 registry（预挂 Go 运行时
 与进程 collectors）+ `/metrics` `/health` handler，otel prometheus
-导出器实现 **metric.Reader**——埋点面（otel metric API，经 `otel.SetMeterProvider`
-安装的全局 MeterProvider）与导出面（client_golang
-私有 registry）由此闭环。接线（New）即安装 otel 全局 provider：其后构造的
+导出器实现 **metric.Reader**——埋点面（otel metric API，经
+`otel.SetMeterProvider` 安装的全局 MeterProvider）与导出面
+（client_golang 私有 registry）由此闭环。接线（New）即安装 otel 全局 provider：其后构造的
 业务仪表自动路由到本出口，免逐组件穿线。不接线时 otel 全局即 noop
 provider，"缺省不埋点"无需额外导出依赖即达成，模板行为不变。
 
@@ -14,7 +14,7 @@ provider，"缺省不埋点"无需额外导出依赖即达成，模板行为不�
 
 **第三方依赖**：`github.com/prometheus/client_golang` +
 `go.opentelemetry.io/otel/exporters/prometheus` + `go.opentelemetry.io/otel`
-（另 import 其嵌套模块 `otel/metric` 与 `otel/sdk/metric`）。
+（另依赖其嵌套模块 `otel/metric` 与 `otel/sdk/metric`）。
 删除本目录并 `go mod tidy` 后即从 go.mod 清除。
 
 ## 接入（复制即用，无需 go get——组件已在本模块内）
@@ -101,7 +101,7 @@ mux.Handle(pm.HealthPath(), pm.HealthHandler())
 | `New(cfg Config) (*Prom, error)`                    | 构造 registry 与路由（无副作用、不监听）并安装 otel 全局 MeterProvider；失败无资源需清理 |
 | `(*Prom).Start(ctx) error`                          | addr 非空时同步监听（绑定错误 fail-fast）后起服务 goroutine；addr 为空跳过 |
 | `(*Prom).Stop(ctx) error`                           | 预算内优雅关停并回收 provider（addr 为空时仍回收）；幂等，失败降级警告   |
-| `(*Prom).Meter(scope string) otelmetric.Meter`      | 本组件安装的 provider 下指定 scope 的 otel 仪表面（单实例时即全局；缺省直接用 `otel.GetMeterProvider().Meter(scope)`） |
+| `(*Prom).Meter(scope string) metric.Meter`          | 本组件安装的 provider 下指定 scope 的 otel 仪表面（`metric.Meter`，单实例时即全局；缺省直接用 `otel.GetMeterProvider().Meter(scope)`） |
 | `(*Prom).Registry() prometheus.Registerer`          | 私有 registry（自定义 Collector 注册用）              |
 | `(*Prom).RegisterCheck(name string, fn CheckFunc)`  | 登记命名健康检查（装配点胶水）                             |
 | `(*Prom).MetricsHandler() http.Handler`             | `/metrics` 等价 handler（单端口注入用）               |

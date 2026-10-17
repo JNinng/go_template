@@ -19,9 +19,9 @@ observ 是零依赖 Logger/Meter 两方法小接口 + 包级默认 + Noop 回落
   name/help），httpserver 请求指标被迫直连 prometheus 原生 API
   （ADR-0005）；otel metric API 原生支持 attributes、单位与显式桶、
   ctx 关联（exemplar），契约理由消失。
-- **迁移有等价映射背书**：observ → otel + slog 的逐项映射（级别对应、
-  仪表类型对应、构造期快照语义对齐、默认静默对齐）已在 observ 侧
-  完成推演并沉淀为迁移文档，语义等价可逐项核对。
+- **迁移映射可逐项核对**：级别（Debug/Info/Warn/Error 同名对应）、
+  仪表类型（Counter/Gauge/Histogram）、构造期快照语义与默认静默均已
+  对齐，迁移是语义等价替换而非行为重设计。
 
 ## 决策
 
@@ -36,8 +36,9 @@ observ 是零依赖 Logger/Meter 两方法小接口 + 包级默认 + Noop 回落
 - **自环死锁硬边界的解法更新**：ADR-0004/0006 曾因"slog SetDefault 与
   stdlib log 桥自环死锁"拒绝 handler 层注入、把链路注入做在 observ 边界。
   该拒绝的前置条件是"进程从未设置过具体 handler"；引导层 discard 默认使
-  该形态不可达——otelc 链路注入迁为 slog.Handler 装饰（含 init 期哨兵
-  守卫：包装对象为 stdlib 内部缺省时跳过，覆盖未走引导的宿主）。
+  该形态不可达——otelc 链路注入迁为 slog.Handler 装饰（含类型守卫：
+  包装对象为 stdlib 内部缺省 handler（含其派生形态）时跳过，覆盖未走
+  引导的宿主）。
 - **指标面 = otel metric API**：业务埋点经 `otel.GetMeterProvider().Meter(scope)`
   建仪表（未接线 promc 时全局即 noop provider，"缺省不埋点"无需额外导出依赖）；
   promc 改以 otel prometheus 导出器实现 `metric.Reader`——私有 registry、
@@ -47,7 +48,7 @@ observ 是零依赖 Logger/Meter 两方法小接口 + 包级默认 + Noop 回落
   `_total`/`_seconds`（导出器按类型与单位追加），导出指标名口径不变。
 - **zapc 稳定桥自持**：observ/adapters/zaplog 退役后，slog → zap 的
   稳定桥由 zapc 自持（`NewBridge(kit.Current, WithCtxAttrsBridge(...))`
-  ，约 200 行）：动态实例跟随、ctx 属性注入、组展平与 LogValuer 解析
+  ，约 180 行）：动态实例跟随、ctx 属性注入、组展平与 LogValuer 解析
   语义自适配器逐条平移；caller 定位改取 slog Record 自带 PC（slog 捕获
   的即调用方现场），zaplog 时代的 skip 烘焙随之删除。
 - **httpserver 基础设施指标维持 prometheus 原生 API**：method/pattern/
@@ -55,8 +56,8 @@ observ 是零依赖 Logger/Meter 两方法小接口 + 包级默认 + Noop 回落
   `Registry()` 与 otel 业务仪表同场导出（ADR-0005 结论不变，理由更新——
   不再是"契约无 label"而是"切片标签原生形态最直接"）。
 - **测试成本接受**：otel 同步仪表接口密封（内嵌未导出标记方法），仪表值
-  断言走导出面（/metrics exposition）而非 fake Meter——promc 测试以此
-  形态落定，给测试引入的只有既有 client_golang 依赖。
+  断言走导出面（/metrics exposition）而非 fake Meter——promc 测试即按此
+  形态实现，给测试引入的只有既有 client_golang 依赖。
 
 ## Considered Options
 

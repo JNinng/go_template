@@ -315,8 +315,8 @@ type Source interface {
 可用（基于 stdlib 构建）；业务换 zap 时由 zapc 接管 `slog.SetDefault`（稳定桥，见 zapc README），业务自身代码直调
 zap——不经任何中间层，高频路径零额外开销。
 
-**默认静默**：日志后端装配前，全局日志器为 discard（`app.Run` 第 0 步 `slog.SetDefault(slog.New(slog.DiscardHandler))`
-）——未配置零输出、零开销，引导期日志噪音为零。该步同时是装饰安全的前提：此后任何 `slog.SetDefault` 装饰（如 otelc
+**默认静默**：日志后端装配前，全局日志器为 discard（`app.Run` 第 0 步
+`slog.SetDefault(slog.New(slog.DiscardHandler))`）——未配置零输出、零开销，引导期日志噪音为零。该步同时是装饰安全的前提：此后任何 `slog.SetDefault` 装饰（如 otelc
 链路注入）包裹的都不是 stdlib 内部缺省 handler——其写路径经 stdlib log 桥，包裹后再接管会把 log 桥重定向回装饰器形成
 自环（首条日志即在 log.Logger 的锁上死锁）。
 
@@ -372,8 +372,9 @@ func setupLogging(t *config.Tree, r *runner) error {
 
 **不做文件轮转**：`output` 文件仅追加。轮转归属部署侧（logrotate / 容器 runtime）或业务换入的 zap 方案——这是缺省日志链路保持零第三方依赖的边界。
 
-**原生组件如何拿到日志**：不显式传递。启动时序保证 setupLogging 先于组件装配，组件构造期快照 `slog.Default()`
-即正确后端；显式 `WithLogger` 注入保留给测试。模板与原生组件共享同一个包级默认，无传递机制。第三方组件不经此路径，按其日志面形态桥接（见下表）。
+**原生组件如何拿到日志**：不显式传递。启动时序保证 setupLogging 先于组件装配；构造期快照拿的是构造时刻的 handler
+（早于 zapc 接管者拿到 stdlib handler，不随接管跟随——需要跨换后端存活的组件应排在 zapc 之后构造或动态读）。
+显式 `WithLogger` 注入保留给测试。模板与原生组件共享同一个包级默认，无传递机制。第三方组件不经此路径，按其日志面形态桥接（见下表）。
 
 **第三方库的日志面**（适配组件的桥接规则，按库接口形态三选一）：
 
@@ -384,8 +385,8 @@ func setupLogging(t *config.Tree, r *runner) error {
 | 接收 zap 等具体后端      | 直接传该后端实例；模板侧经 zapc 的稳定桥换向后，slog 调用面仍全覆盖（见 zapc README）                 |
 
 **换 zap 配方**：内置组件库的 **zapc**（README）即此方案——生命周期装配 + 级别热更 + 接线即接管 slog 默认
-（`slog.SetDefault(slog.New(NewBridge(kit.Current)))`，桥身份恒定的稳定桥，热更重建只换 kit 内实例、桥自动跟随）。
-轻量替代（无生命周期/热更诉求时）：
+（`slog.SetDefault(slog.New(zapc.NewBridge(kit.Current)))`，桥身份恒定的稳定桥，热更重建只换 kit 内实例、
+桥自动跟随）。轻量替代（无生命周期/热更诉求时，`zapslog` 需 `go get go.uber.org/zap/exp/zapslog`）：
 
 ```go
 z := zap.Must(zap.NewProduction())
@@ -772,7 +773,7 @@ tracing 与日志导出）、`internal/components/promc`（指标与健康检查
   与日志关联照常工作，仅不导出；endpoint 非空才创建 OTLP 导出器
   （grpc/http，恒 insecure——TLS 与凭据不在范围）
 - otelc 的日志注入经 `CtxLogAttrs` 提取器双通道：接 zapc 时装配点以
-  `zapc.WithCtxAttrs(otelc.CtxLogAttrs)` 注入，zapc 桥在桥内部
+  `zapc.WithCtxAttrs(otelc.CtxLogAttrs)` 注入，zapc 桥内部
   附加 trace_id/span_id/request_id——调用面无装饰层，caller 定位恒定
   （桥包装 kit、身份恒定，zapc 接管 `slog.SetDefault` 一次完成，
   ADR-0006）；未接 zapc 时构造仍以装饰兜底（装饰 slog 默认 handler，

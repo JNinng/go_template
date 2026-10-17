@@ -125,9 +125,9 @@ otelc:
 |-----------------------------------------------|----------------------------------------------------------------|
 | `Default() Config`                            | 默认值基座（与 `config.Decode` 成对使用）                                  |
 | `(Config).Validate() error`                   | 校验取值（protocol 仅 grpc/http）                                     |
-| `New(cfg Config, ...Option) (*Tracer, error)` | 构造即装配全局 provider + W3C 传播器 + 装饰日志面（logs_enabled 时另建日志导出管线）；失败即未启动，无资源需清理 |
+| `New(cfg Config, ...Option) (*Tracer, error)` | 构造即装配全局 provider + W3C 传播器 + 装饰 slog 默认（未接 zapc 时兜底；logs_enabled 时另建日志导出管线）；失败即未启动，无资源需清理 |
 | `WithService(name, env, ver string) Option`   | 设置资源标识（service.name / deployment.environment.name / service.version），span 与日志共用 |
 | `WithInstanceID(id string) Option`            | 设置 `service.instance.id`（与 X-Instance-IDs 响应头同值；装配点传 `httpserver.InstanceID(meta.Name)`） |
 | `(*Tracer).LogCore() zapcore.Core`            | OTLP 日志导出的 zap core（未启用时 nil）；装配点经 `zapc.WithCore` 组合进 tee     |
 | `(*Tracer).Start(ctx) error`                  | 输出启动信号（含 endpoint / export 状态）后立即返回                            |
-| `(*Tracer).Stop(ctx) error`                   | 预算内 flush span；幂等，失败降级警告                                       |
+| `(*Tracer).Stop(ctx) error`                   | 预算内 flush 未发送的日志与 span（日志先）；幂等，失败降级警告                        |
