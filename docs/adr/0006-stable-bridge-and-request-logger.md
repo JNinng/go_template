@@ -1,5 +1,11 @@
 # 稳定桥取代 Rebind 协议：caller 恒定、链路注入沉入适配层、请求日志独立
 
+> **修订**：observ 退役后稳定桥由 zapc 自持（`zapc.NewBridge`，slog.Handler
+> 形态，ADR-0007）；caller 定位改取 slog Record 自带 PC，skip 烘焙随之删除。
+> "handler 级包装依旧不可行"一项已被引导层 discard 默认翻转——前置条件
+> 变化见 ADR-0004/0007 修订注记。桥身份恒定、注入沉入桥内、请求日志独立
+> 三项决策不变。
+
 zapc / otelc / httpserver 三组件的日志组合在运行中发现系统性缺陷：observ
 默认日志器 caller 错位、zap.L() 直调路径缺链路注入、访问日志与业务日志
 混流。本 ADR 记录重设计的决策与落选项（ADR-0005 的后续演进）。

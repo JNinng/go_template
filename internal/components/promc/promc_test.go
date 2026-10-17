@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jninng/observ"
+	"go.opentelemetry.io/otel"
+	otelmetric "go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
 )
 
 func TestDefault(t *testing.T) {
@@ -49,15 +51,25 @@ func TestNew_InvalidConfigRejected(t *testing.T) {
 	}
 }
 
+// newProm 构造组件并在测试结束后恢复全局 MeterProvider（New 即安装
+// 全局 provider，且 Stop 不回退）。
+func newProm(t *testing.T, cfg Config) *Prom {
+	t.Helper()
+	prev := otel.GetMeterProvider()
+	t.Cleanup(func() { otel.SetMeterProvider(prev) })
+	p, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 // 全链路：Start 后 /metrics 含 Go 运行时指标、/health 恒 healthy（零登记），
 // Stop 后端口关闭，二次 Stop 幂等。
 func TestStartStop_Endpoints(t *testing.T) {
 	cfg := Default()
 	cfg.Addr = "127.0.0.1:0"
-	p, err := New(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	p := newProm(t, cfg)
 	ctx := context.Background()
 	if err := p.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -117,23 +129,18 @@ func TestStart_PortInUse(t *testing.T) {
 
 	cfg := Default()
 	cfg.Addr = ln.Addr().String()
-	p, err := New(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	p := newProm(t, cfg)
 	if err := p.Start(context.Background()); err == nil {
 		_ = p.Stop(context.Background())
 		t.Fatal("Start on occupied port must fail")
 	}
 }
 
-// 单端口形态（缺省）：addr 空 → Start 不监听、无副作用，Stop 空操作；
-// MetricsPath / HealthPath 暴露配置路径供挂载方对齐。
+// 单端口形态（缺省）：addr 空 → Start 跳过监听（无副作用）；Stop 跳过
+// server 关停但仍回收 provider；MetricsPath / HealthPath 暴露配置路径供
+// 挂载方对齐。
 func TestStart_EmptyAddrSkipsListener(t *testing.T) {
-	p, err := New(Default())
-	if err != nil {
-		t.Fatal(err)
-	}
+	p := newProm(t, Default())
 	ctx := context.Background()
 	if err := p.Start(ctx); err != nil {
 		t.Fatalf("Start with empty addr: %v", err)
@@ -155,10 +162,7 @@ func TestStart_EmptyAddrSkipsListener(t *testing.T) {
 // 健康聚合：登记通过 / 失败检查各一 → 503 + details；全通过 → 200；
 // 非 GET → 405。
 func TestHealthAggregation(t *testing.T) {
-	p, err := New(Default())
-	if err != nil {
-		t.Fatal(err)
-	}
+	p := newProm(t, Default())
 	p.RegisterCheck("ok_check", func() error { return nil })
 	p.RegisterCheck("bad_check", func() error { return context.DeadlineExceeded })
 
@@ -184,10 +188,7 @@ func TestHealthAggregation(t *testing.T) {
 		t.Errorf("details = %+v", got.Details)
 	}
 
-	p2, err := New(Default())
-	if err != nil {
-		t.Fatal(err)
-	}
+	p2 := newProm(t, Default())
 	w2 := httptest.NewRecorder()
 	p2.HealthHandler().ServeHTTP(w2, httptest.NewRequest(http.MethodGet, "/health", nil))
 	if w2.Code != http.StatusOK {
@@ -199,29 +200,69 @@ func TestHealthAggregation(t *testing.T) {
 	}
 }
 
-// New 即安装 observ 默认 Meter；Stop 不回退（进程收尾语义）。
-func TestNewInstallsDefaultMeter(t *testing.T) {
-	old := observ.SetDefaultMeter(observ.NoopMeter)
-	defer observ.SetDefaultMeter(old)
+// New 即安装 otel 全局 MeterProvider；其后经全局创建的仪表路由到本组件
+// registry 并出现在 /metrics（闭环证明）。Stop 不回退（进程收尾语义）。
+func TestNewInstallsDefaultProvider(t *testing.T) {
+	prev := otel.GetMeterProvider()
+	otel.SetMeterProvider(noop.NewMeterProvider()) // 先复位：证明安装确由 New 完成
+	t.Cleanup(func() { otel.SetMeterProvider(prev) })
 
 	p, err := New(Default())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if observ.DefaultMeter() != p.Meter() {
-		t.Fatal("New must install the component meter as observ default")
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
+
+	// 仪表经全局 provider 创建（业务组件的缺省埋点路径），绑定 New 安装
+	// 的 prom-backed provider——导出面即本组件的 /metrics。
+	m := otel.GetMeterProvider().Meter("promc_test_install")
+	c, err := m.Int64Counter("promc_install_probe", otelmetric.WithUnit("1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Add(context.Background(), 1)
+
+	srv := httptest.NewServer(p.MetricsHandler())
+	defer srv.Close()
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "promc_install_probe_total 1") {
+		t.Errorf("global provider must route to component registry:\n%s", b)
 	}
 }
 
-// Meter 闭环：observ.Meter 注册的指标出现在 exposition 输出中。
+// Meter 闭环：otel 仪表（counter / gauge / histogram）注册的指标出现在
+// exposition 输出中，命名口径由导出器补后缀（_total / _seconds）。
 func TestMeterExposition(t *testing.T) {
-	p, err := New(Default())
+	p := newProm(t, Default())
+	ctx := context.Background()
+	m := p.Meter("promc_test_exposition")
+
+	c, err := m.Int64Counter("promc_test_events", otelmetric.WithDescription("h"), otelmetric.WithUnit("1"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.Meter().NewCounter("promc_test_events_total", "h").Add(3)
-	p.Meter().NewGauge("promc_test_depth", "h").Set(7)
-	p.Meter().NewHistogram("promc_test_latency_seconds", "h", []float64{0.1, 1}).Observe(0.5)
+	c.Add(ctx, 3)
+
+	g, err := m.Int64Gauge("promc_test_depth", otelmetric.WithDescription("h"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Record(ctx, 7)
+
+	h, err := m.Float64Histogram("promc_test_latency",
+		otelmetric.WithUnit("s"), otelmetric.WithExplicitBucketBoundaries(0.1, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Record(ctx, 0.5)
 
 	srv := httptest.NewServer(p.MetricsHandler())
 	defer srv.Close()

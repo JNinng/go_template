@@ -1,10 +1,10 @@
 // Package metric 定义 httpserver 的预置 HTTP 指标。组件 internal 子包：
 // 构造与注册由根包 New 驱动（registry 取自 WithProm 注入的 promc）。
 //
-// 直连 prometheus 原生 API 而非 observ.Meter：后者契约无 label 维度
-// （NewCounter(name, help)），无法表达 method/pattern/status_class 切片
-// ——基础设施组件用原生 API，业务埋点仍走 observ.Meter（经 promc 安装的
-// 默认 Meter）；决策见 ADR-0005。
+// 直连 prometheus 原生 API 而非 otel 仪表：method/pattern/status_class
+// 切片标签在原生 CounterVec/HistogramVec 上表达最直接，且基础设施指标
+// 与 otel 业务仪表同场导出（同一私有 registry）——业务埋点走 otel metric
+// API（经 promc 安装的全局 MeterProvider）；决策见 ADR-0005。
 //
 // pattern 标签用路由模板（net/http ServeMux 的匹配模式）而非原始 path
 // ——基数受路由数约束；未匹配到路由的请求记 UnmatchedPattern。

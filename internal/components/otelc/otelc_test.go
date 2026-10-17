@@ -15,39 +15,32 @@ import (
 	"go_template/internal/config"
 	"go_template/pkg/ctxkey"
 
-	"github.com/jninng/observ"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.uber.org/zap"
 )
 
-// New 装配三处全局（otel provider、slog 默认、observ 默认），测试须快照
-// 恢复，避免污染同包其余测试。
+// New 装配两处全局（otel provider、slog 默认），测试须快照恢复，避免
+// 污染同包其余测试。
 func restoreGlobals(t *testing.T) {
 	t.Helper()
 	prevTP := otel.GetTracerProvider()
 	prevSlog := slog.Default()
-	prevObs := observ.SetDefaultLogger(observ.NoopLogger)
 	t.Cleanup(func() {
 		otel.SetTracerProvider(prevTP)
 		slog.SetDefault(prevSlog)
-		observ.SetDefaultLogger(prevObs)
 	})
 }
 
-// newLogBackend 把 slog 默认后端切到内存 buffer（text 编码）并同步
-// observ 默认为该后端——New 的装饰包裹构造时刻的 observ 默认，须先装
-// 好再构造。返回 buffer。
+// newLogBackend 把 slog 默认后端切到内存 buffer（text 编码）——New 的
+// 装饰包裹构造时刻的默认 handler，须先装好再构造。返回 buffer。
 func newLogBackend(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer
 	prevSlog := slog.Default()
-	prevObs := observ.SetDefaultLogger(observ.NoopLogger)
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
-	observ.SetDefaultLogger(observ.NewSlogLogger(slog.Default()))
 	t.Cleanup(func() {
 		slog.SetDefault(prevSlog)
-		observ.SetDefaultLogger(prevObs)
 	})
 	return &buf
 }
@@ -119,11 +112,11 @@ func TestNew_LogTraceInjected(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = tr.Stop(context.Background()) })
 
-	observ.DefaultLogger().Log(context.Background(), slog.LevelInfo, "no_span")
+	slog.Default().InfoContext(context.Background(), "no_span")
 
 	ctx, span := otel.Tracer("otelc-test").Start(context.Background(), "op")
 	defer span.End()
-	observ.DefaultLogger().Log(ctx, slog.LevelInfo, "in_span")
+	slog.Default().InfoContext(ctx, "in_span")
 
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
 	if len(lines) != 2 {
@@ -193,11 +186,11 @@ func TestNew_RequestIDInjected(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = tr.Stop(context.Background()) })
 
-	observ.DefaultLogger().Log(context.Background(), slog.LevelInfo, "no_id")
+	slog.Default().InfoContext(context.Background(), "no_id")
 
 	ctx, span := otel.Tracer("otelc-test").Start(context.Background(), "op")
 	defer span.End()
-	observ.DefaultLogger().Log(ctxkey.WithRequestID(ctx, "req-42"), slog.LevelInfo, "with_id")
+	slog.Default().InfoContext(ctxkey.WithRequestID(ctx, "req-42"), "with_id")
 
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
 	if len(lines) != 2 {
@@ -311,8 +304,12 @@ func TestCtxLogAttrs(t *testing.T) {
 	}
 }
 
+// stdlibDefaultLogger 是测试二进制启动时的 slog 默认——若无人于 init 期
+// 改动，即 stdlib 内部缺省 handler；"派生过的 stdlib 默认"用例的基座。
+var stdlibDefaultLogger = slog.Default()
+
 // slog 缺省后端的兜底注入：重复安装不叠装饰，链路日志恒带 trace 属性
-// （接了 zapc 时接管整体替换本装饰，注入由适配层经 WithCtxAttrs 完成）。
+// （接了 zapc 时接管整体替换本装饰，注入由桥经 WithCtxAttrs 完成）。
 func TestLogTrace_SlogFallbackDecoration(t *testing.T) {
 	restoreGlobals(t)
 	buf1 := newLogBackend(t)
@@ -326,15 +323,29 @@ func TestLogTrace_SlogFallbackDecoration(t *testing.T) {
 
 	ctx, span := otel.Tracer("otelc-test").Start(context.Background(), "op")
 	defer span.End()
-	observ.DefaultLogger().Log(ctx, slog.LevelInfo, "decorated")
+	slog.Default().InfoContext(ctx, "decorated")
 	wantTrace := span.SpanContext().TraceID().String()
 	if got := strings.Count(buf1.String(), wantTrace); got != 1 {
 		t.Fatalf("single decoration expected, trace_id hits = %d:\n%s", got, buf1.String())
 	}
 }
 
+// 自环守卫：派生过的 stdlib 缺省 handler（With 产生的新指针，类型不变）
+// 同样跳过——只比初始快照会漏判并死锁。
+func TestInstallLogTrace_SkipsDerivedStdlibDefault(t *testing.T) {
+	prev := slog.Default()
+	defer slog.SetDefault(prev)
+
+	slog.SetDefault(stdlibDefaultLogger.With("derived", true))
+	before := slog.Default().Handler()
+	installLogTrace()
+	if slog.Default().Handler() != before {
+		t.Fatal("derived stdlib default handler must not be wrapped (self-ring deadlock)")
+	}
+}
+
 // 组合回归：otelc 先接线、zapc 后接管（logs_enabled 配方的接线顺序）——
-// 接管整体替换装饰，链路注入由 WithCtxAttrs 在 zaplog 适配层完成，
+// 接管整体替换装饰，链路注入由 WithCtxAttrs 在 zapc 桥内完成，
 // 热更重建后保持有效（WithCtxAttrs 传参即模板 biz 接线）。
 func TestLogTrace_SurvivesZapcTakeoverAndRebuild(t *testing.T) {
 	restoreGlobals(t)
@@ -358,7 +369,7 @@ func TestLogTrace_SurvivesZapcTakeoverAndRebuild(t *testing.T) {
 	logInSpan := func(msg string) {
 		ctx, span := otel.Tracer("otelc-test").Start(context.Background(), "op")
 		defer span.End()
-		observ.DefaultLogger().Log(ctx, slog.LevelInfo, msg)
+		slog.Default().InfoContext(ctx, msg)
 	}
 	logInSpan("after_takeover")
 

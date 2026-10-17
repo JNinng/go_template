@@ -5,9 +5,9 @@
 
 | 资产                     | module 路径                                                    | 类型  | 配置节                            | 热更         | 状态    | 说明                                                                              |
 |------------------------|--------------------------------------------------------------|-----|--------------------------------|------------|-------|---------------------------------------------------------------------------------|
-| observ                 | `github.com/jninng/observ`                                   | 契约库 | —                              | —          | 可用    | 零依赖 Logger/Meter 契约 + slog 桥 + Noop 回落；v0.2.0 起 Logger 两方法携带 ctx（签名对齐 slog，破坏性）；v0.3.0 起 DefaultMeter 包级默认（初始 Noop，构造期快照） |
-| observ/adapters/zaplog | `github.com/jninng/observ/adapters/zaplog`                   | 适配器 | —                              | —          | 可用    | zap 实现 observ.Logger                                                            |
-| observ/adapters/prom   | `github.com/jninng/observ/adapters/prom`                     | 适配器 | —                              | —          | 可用    | client_golang 实现 observ.Meter；内置组件 promc 的消费依赖                                  |
+| observ                 | `github.com/jninng/observ`                                   | 契约库 | —                              | —          | 退役    | 零依赖 Logger/Meter 契约；ADR-0007 起日志/指标面收敛 stdlib slog 与 otel，模板不再依赖                |
+| observ/adapters/zaplog | `github.com/jninng/observ/adapters/zaplog`                   | 适配器 | —                              | —          | 退役    | zap 实现 observ.Logger；职责由 zapc 自持稳定桥（`zapc.NewBridge`）承接                          |
+| observ/adapters/prom   | `github.com/jninng/observ/adapters/prom`                     | 适配器 | —                              | —          | 退役    | client_golang 实现 observ.Meter；职责由 otel prometheus 导出器承接                          |
 | nacos                  | [`github.com/jninng/nacos`](https://github.com/JNinng/nacos) | 原生  | `nacos`（config/registrar 子节分立） | 启动期配置（不热更） | 已并入模板 | v0.1.0 起并入模板内置组件库 `internal/components/nacos`；接入见组件 README 与 DESIGN.md 附录 B     |
 
 ## 维护规则

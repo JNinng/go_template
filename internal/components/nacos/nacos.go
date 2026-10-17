@@ -8,8 +8,8 @@
 // 共享连接。nacos 节为启动期配置：不实现 ApplyConfig，变更仅下次启动生效。
 // 引导自身所需配置（连接参数）只能来自本地层——读它时远程尚未连通。
 //
-// 第三方依赖：github.com/nacos-group/nacos-sdk-go/v2 + github.com/jninng/observ
-// （删除本组件目录并 go mod tidy 后即从 go.mod 清除）。
+// 第三方依赖：github.com/nacos-group/nacos-sdk-go/v2（删除本组件目录并
+// go mod tidy 后即从 go.mod 清除）。
 package nacos
 
 import (
@@ -21,8 +21,6 @@ import (
 
 	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
 	"github.com/nacos-group/nacos-sdk-go/v2/vo"
-
-	"github.com/jninng/observ"
 )
 
 // ConfigCenter 为 nacos.config 子节（配置中心角色）。
@@ -85,14 +83,14 @@ func Default() Config {
 type Option func(*options)
 
 // WithLogger 显式注入日志面（保留给测试捕获）。缺省不注入——调用点
-// 动态读 observ.DefaultLogger()：本组件可能在 setupSources 构造（早于
-// 日志装配），构造期快照会把告警永久固定在 Noop。
-func WithLogger(l observ.Logger) Option {
+// 动态读 slog.Default()：本组件可能在 setupSources 构造（早于日志装配，
+// 引导期默认为 discard），构造期快照会把告警永久固定在静默。
+func WithLogger(l *slog.Logger) Option {
 	return func(o *options) { o.logger = l }
 }
 
 type options struct {
-	logger observ.Logger // 显式注入的日志面；nil 表示动态读默认
+	logger *slog.Logger // 显式注入的日志面；nil 表示动态读默认
 }
 
 // newOptions 应用全部选项。
@@ -106,17 +104,17 @@ func newOptions(opts []Option) options {
 
 // current 返回生效的日志面：显式注入优先，否则动态读默认（换后端立即生效）。
 // 日志调用点一律 context.Background()——SDK 回调与生命周期事件不在业务
-// span 内，且 .Log 必须在最终调用点直接发起（隔层封装会失真 caller 帧）。
-func (o options) current() observ.Logger {
+// span 内，且日志调用必须在最终调用点直接发起（隔层封装会失真 caller 帧）。
+func (o options) current() *slog.Logger {
 	if o.logger != nil {
 		return o.logger
 	}
-	return observ.DefaultLogger()
+	return slog.Default()
 }
 
 // stderrWarn 是策略降级告警的第二通道（直写 stderr）：降级事件可能发生在
-// 引导窗口（setupSources 早于日志装配），observ 那时可能仍是 Noop，stderr
-// 保证高信号运维事实永不丢失；日志就绪后最多重复一行，可接受。
+// 引导窗口（setupSources 早于日志装配），默认日志器那时仍是 discard，
+// stderr 保证高信号运维事实永不丢失；日志就绪后最多重复一行，可接受。
 func stderrWarn(msg string, attrs ...slog.Attr) {
 	fmt.Fprintf(os.Stderr, "[WARN] nacos: %s %v\n", msg, attrs)
 }

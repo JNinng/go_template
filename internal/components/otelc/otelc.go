@@ -1,5 +1,5 @@
 // Package otelc 是内置组件库的 OpenTelemetry 可观测组件：装配全局
-// TracerProvider（OTLP gRPC/HTTP 导出）并装饰 observ 日志面（ctx 携带
+// TracerProvider（OTLP gRPC/HTTP 导出）并装饰 slog 默认日志器（ctx 携带
 // 有效 span 时 trace_id/span_id 自动附加）；logs_enabled 时另建 OTLP
 // 日志导出管线（otelzap 桥为 zap core，经装配点组合进 zapc 的 tee）。
 // 包名拼 c 与 go.opentelemetry.io/otel 消解同名（约定见库 README）。
@@ -10,13 +10,13 @@
 //
 // 文件布局：otelc.go 组件壳（生命周期）；config.go 配置节；
 // provider.go 资源与 tracing 导出器；logs.go OTLP 日志导出管线；
-// logtrace.go 日志装饰（observ 边界）。
+// logtrace.go 日志装饰（slog handler 边界）。
 //
 // 第三方依赖：go.opentelemetry.io/otel + sdk + sdk/log + trace +
 // exporters/otlp/otlptrace（grpc/http）+ exporters/otlp/otlplog（grpc/http）
-// + contrib/bridges/otelzap（zap 桥）+ github.com/jninng/observ
-// （删除本目录并 go mod tidy 后即从 go.mod 清除；otelzap 桥仅在启用
-// logs_enabled 时 import zap——zapc 已携带该依赖，不新增）。
+// + contrib/bridges/otelzap（zap 桥）（删除本目录并 go mod tidy 后即从
+// go.mod 清除；otelzap 桥仅在启用 logs_enabled 时 import zap——zapc 已
+// 携带该依赖，不新增）。
 package otelc
 
 import (
@@ -24,16 +24,15 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/jninng/observ"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.uber.org/zap/zapcore"
 )
 
-// Tracer 是 OTel 组件壳：New 装配全局 provider 并装饰日志面（tracing
-// 信号 + 日志链路注入），logs_enabled 时另建 OTLP 日志导出管线并经
-// LogCore 供装配点组合进 zapc。Start 输出可见信号，Stop 在停机预算内
+// Tracer 是 OTel 组件壳：New 装配全局 provider 并装饰 slog 默认日志器
+// （tracing 信号 + 日志链路注入），logs_enabled 时另建 OTLP 日志导出管线
+// 并经 LogCore 供装配点组合进 zapc。Start 输出可见信号，Stop 在停机预算内
 // flush 未发送的 span 与日志。
 type Tracer struct {
 	cfg      Config
@@ -72,10 +71,10 @@ func WithInstanceID(id string) Option {
 }
 
 // New 构造即装配：创建 TracerProvider（endpoint 非空时挂 OTLP 导出器）
-// 并安装为全局，随后装饰日志面——未接 zapc 的项目经此保持链路日志对齐
-// （slog 缺省后端的兜底注入；接 zapc 时接管整体替换本装饰，链路注入由
-// 装配点 zapc.WithCtxAttrs(CtxLogAttrs) 在 zaplog 适配层完成，装配序
-// 恒为本组件先、zapc 后）。logs_enabled 时另建 OTLP 日志导出管线
+// 并安装为全局，随后装饰 slog 默认日志器——未接 zapc 的项目经此保持
+// 链路日志对齐（slog 缺省后端的兜底注入；接 zapc 时接管整体替换本装饰，
+// 链路注入由装配点 zapc.WithCtxAttrs(CtxLogAttrs) 在 zapc 桥内完成，
+// 装配序恒为本组件先、zapc 后）。logs_enabled 时另建 OTLP 日志导出管线
 // （LogCore 组合方式见 README）。构造失败即未启动、已建 provider 就地
 // 回收；此前的全局指派随引导失败进程退出，无实际影响。
 func New(cfg Config, opts ...Option) (*Tracer, error) {
@@ -131,7 +130,7 @@ func (t *Tracer) Start(ctx context.Context) error {
 	} else {
 		attrs = append(attrs, slog.String("endpoint", t.cfg.Endpoint))
 	}
-	observ.DefaultLogger().Log(ctx, slog.LevelInfo, "otelc_tracing_started", attrs...)
+	slog.Default().LogAttrs(ctx, slog.LevelInfo, "otelc_tracing_started", attrs...)
 	return nil
 }
 
@@ -142,13 +141,11 @@ func (t *Tracer) Stop(ctx context.Context) error {
 	t.once.Do(func() {
 		if t.logFlush != nil {
 			if err := t.logFlush(ctx); err != nil {
-				observ.DefaultLogger().Log(ctx, slog.LevelWarn, "otelc_logs_flush_failed",
-					slog.Any("error", err))
+				slog.WarnContext(ctx, "otelc_logs_flush_failed", slog.Any("error", err))
 			}
 		}
 		if err := t.flush(ctx); err != nil {
-			observ.DefaultLogger().Log(ctx, slog.LevelWarn, "otelc_tracer_flush_failed",
-				slog.Any("error", err))
+			slog.WarnContext(ctx, "otelc_tracer_flush_failed", slog.Any("error", err))
 		}
 	})
 	return nil

@@ -2,15 +2,24 @@
 package app
 
 import (
+	"log/slog"
+
 	"go_template/internal/config"
 
 	"go_template/internal/runner"
 )
 
-// Run 是模板唯一的启动时序。六步顺序即依赖顺序：
-// 配置 → 远程源 → 日志 → 元数据 → 业务组件 → 运行。
+// Run 是模板唯一的启动时序。顺序即依赖顺序：
+// 默认静默 → 配置 → 远程源 → 日志 → 元数据 → 业务组件 → 运行。
 // 任一步失败即引导失败：错误上抛，由命令层直写 stderr、退出码 1。
 func Run(configPath, env, logLevel string) error {
+	// 0. 默认静默：日志后端装配前，全局日志器为 discard（对齐"未配置
+	//    零输出"的默认语义；stdlib 缺省 logger 会把启动期日志直写 stderr）。
+	//    同时保证此后任何 slog.SetDefault 装饰（如 otelc 链路注入）包裹的
+	//    都不是 stdlib 内部缺省 handler——其写路径经 stdlib log 桥，包裹后
+	//    再接管会自环死锁（otelc.installLogTrace 的守卫依据）。
+	slog.SetDefault(slog.New(slog.DiscardHandler))
+
 	var overrides []config.Override
 	if logLevel != "" {
 		overrides = append(overrides, config.Override{Key: "log.level", Value: logLevel})
@@ -29,7 +38,7 @@ func Run(configPath, env, logLevel string) error {
 		return err
 	}
 
-	// 3. 装配日志后端：读 log 节，设 observ 默认后端，订阅 level 热更。
+	// 3. 装配日志后端：读 log 节，设 slog 默认后端，订阅 level 热更。
 	r := runner.New()
 	if err := setupLogging(t, r); err != nil {
 		return err

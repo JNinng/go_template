@@ -4,7 +4,7 @@
 传播器 + OTLP 导出（gRPC/HTTP，恒 insecure）+ **日志链路注入**（ctx
 携带有效 span 的日志调用自动附加 `trace_id` / `span_id`，携带
 `request_id`（pkg/ctxkey，httpserver 注入）时附加 `request_id`，经
-observ 边界装饰，不接管任何日志全局）+ 可选 **OTLP 日志导出**
+slog handler 装饰或 zapc 桥内部注入）+ 可选 **OTLP 日志导出**
 （`logs_enabled`，经 otelzap 桥以 zap core 形态由装配点组合进 zapc 的
 tee）。包名拼 `c` 与 go.opentelemetry.io/otel 消解同名（约定见库 README）。
 
@@ -17,15 +17,16 @@ collector（本地开发用 Grafana Alloy / otel-collector 皆可）。同时安
 
 **第三方依赖**：`go.opentelemetry.io/otel` + `sdk` + `sdk/log` + `trace` +
 `exporters/otlp/otlptrace`（grpc/http）+ `exporters/otlp/otlplog`（grpc/http）+
-`contrib/bridges/otelzap`（zap 桥）+ `github.com/jninng/observ`。
+`contrib/bridges/otelzap`（zap 桥）。
 删除本目录并 `go mod tidy` 后即从 go.mod 清除（整棵 otel 依赖树随之清零；
 zap 桥所需 zap 已随 zapc 组件在树内）。
 要求 Go 1.25+（otel 依赖树的最低版本要求）。
 
 ## 接入（复制即用，无需 go get——组件已在本模块内）
 
-**组件触点** `internal/app/biz.go`（链路注入不限接线顺序；启用
-logs_enabled 时须先于 zapc 接线取 LogCore，见下）：
+**组件触点** `internal/app/biz.go`（装配序恒为 otelc 先、zapc 后：
+zapc 接管会整体替换本组件的兜底装饰，链路注入改由桥内 `WithCtxAttrs`
+完成；反序会双份注入。启用 logs_enabled 时也须先于 zapc 接线取 LogCore）：
 
 ```go
 tr, err := AddComponent(t, r, otelc.SectionName, otelc.Default(),
@@ -72,11 +73,14 @@ otelc:
 - **日志链路注入（CtxLogAttrs）**：导出 `CtxLogAttrs(ctx)` 提取链路
   属性（有效 span 出 `trace_id`/`span_id`，ctxkey 出 `request_id`，
   皆无时零属性）。接 zapc 的标准形态：装配点以
-  `zapc.WithCtxAttrs(otelc.CtxLogAttrs)` 注入，链路注入在 zaplog
-  适配层完成——调用面无装饰层，caller 定位不随封装漂移（本组件不
+  `zapc.WithCtxAttrs(otelc.CtxLogAttrs)` 注入，链路注入在 zapc 桥内
+  完成——调用面无装饰层，caller 定位不随封装漂移（本组件不
   import 模板 config，zapc 桥也不 import otel，装配点接线表达组合）。
-  未接 zapc 的项目：构造仍以装饰型 observ.Logger 兜底注入（slog 缺省
-  后端的链路对齐）；接了 zapc 时接管整体替换装饰，装配序恒为本组件
+  未接 zapc 的项目：构造仍以装饰型 slog.Handler 兜底注入（装饰 slog
+  默认 handler 的链路对齐；引导层先装 discard 默认，装饰包裹的恒为
+  可安全接管的 handler——stdlib 内部缺省 handler 的写路径经 log 桥，
+  包裹后再接管会自环死锁，构造守卫跳过该形态）；
+  接了 zapc 时接管整体替换装饰，装配序恒为本组件
   先、zapc 后（书写顺序即依赖顺序），无双份注入
 - **全局 W3C 传播器**：New 即 `otel.SetTextMapPropagator`（TraceContext +
   Baggage 复合）——traceparent 注入与提取的全局基线，httpserver 的
@@ -91,7 +95,7 @@ otelc:
   配置均不在范围（采样走 SDK 缺省 parent-based always-on）
 - **OTLP 日志导出（logs_enabled）**：与 tracing 共用 endpoint/protocol，
   经 otelzap 桥产出 zap core，由装配点以 `zapc.WithCore` 并进 tee——
-  进入 zap 的每条日志（`zap.L()` / kit / observ 三条调用面）自动出海。
+  进入 zap 的每条日志（`zap.L()` / kit / slog 三条调用面）自动出海。
   **依赖 zapc 后端**：缺省 slog 管线没有此通路（与参考实现同前提）；
   core 是 kit 构建参数，zapc 热更重建自动带上；停机顺序自然衔接——
   zapc 后接线先停止（Sync 只刷本地 sink——记录在写入时已同步入队

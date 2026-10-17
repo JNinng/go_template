@@ -9,8 +9,6 @@ import (
 
 	"go_template/internal/config"
 	"go_template/internal/runner"
-
-	"github.com/jninng/observ"
 )
 
 // logConfig 是模板自持的 log 节定义。
@@ -25,9 +23,10 @@ func logDefault() logConfig {
 	return logConfig{Level: "info", Format: "text", Output: "stdout"}
 }
 
-// setupLogging 设 observ 默认日志后端并订阅 log 节 level 热更。
-// 换后端（如 zap）时这是唯一改动点。output 为文件时注册停机关闭钩子
-// （stdlib handler 无缓冲，纯卫生，不丢数据）。
+// setupLogging 设 slog 默认日志后端并订阅 log 节 level 热更。
+// 换 zap 后端不在本函数：由 biz.go 接线 zapc（其 New 经稳定桥接管
+// slog 默认）；删掉该接线即回落到这里的 stdlib 链路。output 为文件时
+// 注册停机关闭钩子（stdlib handler 无缓冲，纯卫生，不丢数据）。
 func setupLogging(t *config.Tree, r *runner.Runner) error {
 	cfg, err := config.Decode(t, "log", logDefault())
 	if err != nil {
@@ -51,7 +50,6 @@ func setupLogging(t *config.Tree, r *runner.Runner) error {
 		return err
 	}
 	slog.SetDefault(slog.New(h))
-	observ.SetDefaultLogger(observ.NewSlogLogger(slog.Default()))
 	if closeFn != nil {
 		// 先于一切组件注册 → 逆序停止时最后关闭，停机全程日志可用
 		r.Add("log-close", nil, func(context.Context) error { return closeFn() })
@@ -64,7 +62,8 @@ func setupLogging(t *config.Tree, r *runner.Runner) error {
 		}
 		lvl.Set(next)
 		if c.Format != cfg.Format || c.Output != cfg.Output {
-			observ.DefaultLogger().Log(context.Background(), slog.LevelInfo, "log_config_restart_required",
+			// 动态读默认（不快照）：zapc 接管后该调用经稳定桥落 zap 后端
+			slog.InfoContext(context.Background(), "log_config_restart_required",
 				slog.String("format", c.Format), slog.String("output", c.Output))
 		}
 		return nil

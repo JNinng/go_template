@@ -1,6 +1,11 @@
 # 日志单一调用面 observ
 
-> **修订**：本文所引 `Enabled(slog.Level) bool` / `Log(level, msg, attrs...)` 签名已被 ADR-0004 演进为携带 ctx 的对齐
+> **修订**：本文的收敛点已从 observ 默认迁至 stdlib slog 包级默认（`slog.Default()`），
+> observ 契约库退役——见 ADR-0007。单一调用面的决策本身不变；持有规则两级
+> （模板动态读 / 原生组件构造期快照）原样平移到 slog 默认。**"全员直接 slog"
+> 拒绝项已被 ADR-0007 翻转**（组件推荐日志面即 slog，不再有自有契约层）。
+
+> **修订（历史）**：本文所引 `Enabled(slog.Level) bool` / `Log(level, msg, attrs...)` 签名已被 ADR-0004 演进为携带 ctx 的对齐
 > slog 版本（observ v0.2.0）；单一调用面的决策本身不变。
 
 模板代码严格经 observ.Logger 记日志（`Enabled(slog.Level) bool` / `Log(level, msg string, attrs ...slog.Attr)`）。装配点设

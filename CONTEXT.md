@@ -18,14 +18,16 @@ _Avoid_: 插件（无运行时注册/发现机制）
 _Avoid_: vendor（Go 工具链保留目录名，包不可导入）
 
 **原生组件**：
-遵循 [DESIGN.md](./docs/DESIGN.md) §11 约定编写的组件，原生适配配置节、observ 等能力。
+遵循 [DESIGN.md](./docs/DESIGN.md) §11 约定编写的组件，原生适配配置节、日志面等能力。
 
 **适配组件**：
 包装既有第三方库使之符合约定的薄层，业务自写或资产作者发布。
 
-**观察契约（observ）**：
-零依赖的 Logger/Meter 接口契约库：模板的日志/指标调用面，原生组件的推荐抽象面。
-_Avoid_: 日志后端
+**日志面（logging surface）**：
+模板与原生组件的统一日志调用面：stdlib `slog`（组件 `WithLogger` 注入
+`*slog.Logger`，未注入时构造期快照 `slog.Default()`；源角色组件——
+`setupSources` 阶段构造、早于日志装配——动态读而非快照）。
+_Avoid_: 日志后端（后端是装配点可替换的实现，不是调用面）
 
 ## 运行时结构
 
@@ -52,16 +54,18 @@ _Avoid_: 容器（不做依赖校验、配置分发、启用开关）
 **链路追踪组件（otelc）**：
 内置组件库的 OTel 追踪组件（`internal/components/otelc`）：全局
 TracerProvider 装配 + 全局 W3C 传播器 + OTLP 导出 + 日志链路注入
-（`CtxLogAttrs` 提取器：接 zapc 时经 `WithCtxAttrs` 沉入适配层，未接
-zapc 时装饰兜底）。
+（`CtxLogAttrs` 提取器：接 zapc 时经 `WithCtxAttrs` 沉入桥内部，未接
+zapc 时装饰 slog 默认 handler 兜底）。
 _Avoid_: APM（指商业监控产品）
 
 **指标与健康组件（promc）**：
 内置组件库的指标健康组件（`internal/components/promc`）：私有
 Prometheus registry + `/metrics` `/health` handler（缺省由 httpserver
-单端口挂载，配置 addr 才自起独立 server）+ `observ.Meter` 适配。
-_Avoid_: 监控面板（指 Grafana 类消费侧）、默认 registry（promc 用私有
-registry，不经 `prometheus.DefaultRegisterer` 的指标不暴露）
+单端口挂载，配置 addr 才自起独立 server）+ otel 全局 MeterProvider
+安装（业务经 otel metric API 埋点，导出面即本组件 registry）。
+_Avoid_: 监控面板（指 Grafana 类消费侧）、默认 registry（经
+`prometheus.DefaultRegisterer` 注册的指标不会出现在 promc 的 `/metrics`；
+只有注册进 promc 私有 registry 的指标才暴露）
 
 **HTTP 服务组件（httpserver）**：
 内置组件库的业务 HTTP Server 组件（`internal/components/httpserver`）：

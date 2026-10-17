@@ -5,14 +5,12 @@ import (
 	"context"
 	"log/slog"
 	"testing"
-
-	"github.com/jninng/observ"
 )
 
 // capture 构造捕获型日志面与其缓冲（测试断言输出内容）。
-func capture() (observ.Logger, *bytes.Buffer) {
+func capture() (*slog.Logger, *bytes.Buffer) {
 	var buf bytes.Buffer
-	return observ.NewSlogLogger(slog.New(slog.NewTextHandler(&buf, nil))), &buf
+	return slog.New(slog.NewTextHandler(&buf, nil)), &buf
 }
 
 func TestNew_EmptyMessageRejected(t *testing.T) {

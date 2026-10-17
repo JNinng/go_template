@@ -10,18 +10,14 @@ import (
 
 	"go_template/internal/config"
 	"go_template/internal/runner"
-
-	"github.com/jninng/observ"
 )
 
 // logging 装配改动包级默认，测试须恢复。
 func restoreLogging(t *testing.T) (func(), *slog.LevelVar) {
 	t.Helper()
 	prevSlog := slog.Default()
-	prevObs := observ.SetDefaultLogger(observ.NoopLogger)
 	return func() {
 		slog.SetDefault(prevSlog)
-		observ.SetDefaultLogger(prevObs)
 	}, nil
 }
 
@@ -59,7 +55,7 @@ func TestSetupLogging_SetsBackend(t *testing.T) {
 	if err := setupLogging(tr, r); err != nil {
 		t.Fatal(err)
 	}
-	l := observ.DefaultLogger()
+	l := slog.Default()
 	if !l.Enabled(context.Background(), slog.LevelInfo) {
 		t.Fatal("info should be enabled at level=info")
 	}
@@ -86,7 +82,7 @@ func TestSetupLogging_LevelHotReload(t *testing.T) {
 	if err := setupLogging(tr, runner.New()); err != nil {
 		t.Fatal(err)
 	}
-	if observ.DefaultLogger().Enabled(context.Background(), slog.LevelDebug) {
+	if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 		t.Fatal("precondition: debug disabled")
 	}
 
@@ -103,7 +99,7 @@ func TestSetupLogging_LevelHotReload(t *testing.T) {
 	}
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if observ.DefaultLogger().Enabled(context.Background(), slog.LevelDebug) {
+		if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -131,7 +127,7 @@ func TestSetupLogging_HotReloadInvalidLevelKeepsOld(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(300 * time.Millisecond) // 等投递
-	l := observ.DefaultLogger()
+	l := slog.Default()
 	if !l.Enabled(context.Background(), slog.LevelInfo) || l.Enabled(context.Background(), slog.LevelDebug) {
 		t.Fatal("invalid hot-reload level must keep previous level")
 	}

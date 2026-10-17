@@ -9,9 +9,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/jninng/observ"
-	"github.com/jninng/observ/adapters/zaplog"
-
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -376,12 +373,13 @@ func TestNew_PassesOptionsThrough(t *testing.T) {
 	}
 }
 
-// 接管形态是稳定桥：observ 默认日志器身份在热更重建前后恒定（只换
+// 接管形态是稳定桥：slog 默认日志器身份在热更重建前后恒定（只换
 // kit 内实例、桥自动跟随），且经默认日志器的输出在重建前后都落当前
 // 实例的 sink——otelc 链路注入的存活性由桥身份恒定保证。
 func TestNew_TakeoverStableBridge(t *testing.T) {
-	old := observ.SetDefaultLogger(observ.NoopLogger)
-	defer observ.SetDefaultLogger(old)
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.DiscardHandler))
+	defer slog.SetDefault(old)
 
 	path := filepath.Join(t.TempDir(), "takeover.log")
 	cfg := testCfg(path, "info")
@@ -391,18 +389,18 @@ func TestNew_TakeoverStableBridge(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = z.Stop(context.Background()) })
 
-	// 持有桥引用（接口拷贝）：热更重建后经旧引用的调用必须落到新实例
+	// 持有默认日志器引用：热更重建后经旧引用的调用必须落到新实例
 	// 的 sink——桥身份恒定（包装 kit）的直接证明；若接管重建是"造新桥
 	// 整体替换"（旧实现），旧引用会攥着已关闭的旧实例而丢失输出。
-	bridge := observ.DefaultLogger()
-	observ.DefaultLogger().Log(context.Background(), slog.LevelInfo, "before_rebuild")
+	bridge := slog.Default()
+	bridge.InfoContext(context.Background(), "before_rebuild")
 
 	next := cfg
 	next.Format = "json"
 	if err := z.ApplyConfig(next); err != nil {
 		t.Fatal(err)
 	}
-	bridge.Log(context.Background(), slog.LevelInfo, "after_rebuild")
+	bridge.InfoContext(context.Background(), "after_rebuild")
 
 	b := content(t, path)
 	if !strings.Contains(b, "before_rebuild") || !strings.Contains(b, "after_rebuild") {
@@ -410,31 +408,31 @@ func TestNew_TakeoverStableBridge(t *testing.T) {
 	}
 }
 
-// WithCtxAttrs：链路注入沉入适配层——经稳定桥的调用带提取属性，且不
-// 产生装饰层（caller skip 由实例侧烘焙，层数恒定）；zap.L()/Current
+// WithCtxAttrs：链路注入沉入桥内部——经稳定桥的调用带提取属性，且不
+// 产生装饰层（caller 取 Record PC，层数恒定）；zap.L()/Current
 // 直调不经桥、不带注入。
 func TestWithCtxAttrs_BridgeInjection(t *testing.T) {
-	old := observ.SetDefaultLogger(observ.NoopLogger)
-	defer observ.SetDefaultLogger(old)
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.DiscardHandler))
+	defer slog.SetDefault(old)
 
 	type key struct{}
 	z, path := newForTest(t, nil) // New 内部完成接管（桥无注入）
-	t.Cleanup(func() { observ.SetDefaultLogger(old) })
+	t.Cleanup(func() { slog.SetDefault(old) })
 	_ = z
 
 	// 重装带注入的桥（模拟装配点 zapc.New(WithCtxAttrs) 形态）
 	kit := z.kit
-	bridge := zaplog.NewDynamic(kit.CurrentSkip1,
-		zaplog.WithCtxAttrs(func(ctx context.Context) []slog.Attr {
+	bridge := NewBridge(kit.Current,
+		WithCtxAttrsBridge(func(ctx context.Context) []slog.Attr {
 			if ctx.Value(key{}) == nil {
 				return nil
 			}
 			return []slog.Attr{slog.String("trace_id", "t-42")}
 		}))
-	observ.SetDefaultLogger(bridge)
+	slog.SetDefault(slog.New(bridge))
 
-	observ.DefaultLogger().Log(context.WithValue(context.Background(), key{}, true),
-		slog.LevelInfo, "via_bridge")
+	slog.Default().InfoContext(context.WithValue(context.Background(), key{}, true), "via_bridge")
 	kit.Info("via_kit")
 
 	b := content(t, path)
@@ -449,10 +447,40 @@ func TestWithCtxAttrs_BridgeInjection(t *testing.T) {
 	}
 }
 
+// WithAttrs / WithGroup 契约：绑定字段只输出一次（顺序：绑定 → 调用时），
+// 组以点号前缀展平且派生后仍跟随动态实例。
+func TestBridge_WithAttrsAndGroup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bridge.log")
+	cfg := testCfg(path, "info")
+	cfg.Format = "json"
+	kit, err := NewLogger(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(kit.Close)
+
+	l := slog.New(NewBridge(kit.Current)).
+		With("bound", "b1").
+		WithGroup("g").
+		With("x", 1)
+	l.Info("msg", "call", "c1")
+
+	b := content(t, path)
+	if n := strings.Count(b, `"bound":"b1"`); n != 1 {
+		t.Fatalf("bound field must appear exactly once, got %d:\n%s", n, b)
+	}
+	for _, want := range []string{`"g.x":1`, `"g.call":"c1"`} {
+		if !strings.Contains(b, want) {
+			t.Fatalf("output missing %q:\n%s", want, b)
+		}
+	}
+}
+
 // WithEncoderConfig：编码器定制在初始构建与热更重建都生效（关 caller）。
 func TestWithEncoderConfig_DisablesCaller(t *testing.T) {
-	old := observ.SetDefaultLogger(observ.NoopLogger)
-	defer observ.SetDefaultLogger(old)
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.DiscardHandler))
+	defer slog.SetDefault(old)
 
 	path := filepath.Join(t.TempDir(), "req.log")
 	z, err := New(testCfg(path, "info"),

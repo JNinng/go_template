@@ -7,8 +7,6 @@ import (
 
 	"go_template/internal/config"
 	"go_template/pkg/version"
-
-	"github.com/jninng/observ"
 )
 
 // Meta 是模板自持的 app 节定义（应用元数据是纯数据，由装配点显式传参消费）。
@@ -55,7 +53,7 @@ func newAnnouncer(meta Meta, effEnv string) *announcer {
 
 // Start 输出启动行后立即返回；消息与字段 snake_case（§9 日志规范）。
 func (a *announcer) Start(ctx context.Context) error {
-	observ.DefaultLogger().Log(ctx, slog.LevelInfo, "service_started",
+	slog.InfoContext(ctx, "service_started",
 		slog.String("app_name", a.appName),
 		slog.String("app_env", a.appEnv),
 		slog.String("app_version", a.version))

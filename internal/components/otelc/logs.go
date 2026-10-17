@@ -16,7 +16,7 @@ import (
 // exporter（gRPC/HTTP，恒 insecure，与 tracing 共用 endpoint/protocol）
 // → BatchProcessor → LoggerProvider（复用 tracing 的 resource）。
 // Core 塞进 zapc 的 tee 后，进入 zap 的每条日志自动出海（zap.L / kit /
-// observ 三条调用面全覆盖）；出海流不受 zapc 级别门控（AtomicLevel 只
+// slog 三条调用面全覆盖）；出海流不受 zapc 级别门控（AtomicLevel 只
 // 作用于文件/控制台 core），级别裁剪交给 collector 侧。
 // 返回 provider，其 Shutdown 由组件 Stop 统一驱动（先于 tracing flush）。
 func buildLogCore(ctx context.Context, cfg Config, res *resource.Resource) (*log.LoggerProvider, zapcore.Core, error) {

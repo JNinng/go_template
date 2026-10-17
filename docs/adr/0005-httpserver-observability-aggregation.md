@@ -21,11 +21,12 @@ RequestID → 请求体上限）。它消费模板全部可观测设施，四个
   定义在 httpserver 的窄接口（结构化类型），`*promc.Prom` 天然满足，
   **httpserver 不 import promc**——ADR-0001 组件零依赖不破，"强绑定"
   由装配点接线表达。
-- **指标直连 prometheus 原生 API，不走 observ.Meter**：`observ.Meter`
-  契约（`NewCounter(name, help)`）没有 label 维度，无法表达
-  method/pattern/status_class 切片。基础设施组件用原生 CounterVec/
-  HistogramVec（promc 自己也直连 prometheus），业务埋点仍走
-  observ.Meter——两类调用面分立，不是 observ 的绕过。pattern 标签用
+- **指标直连 prometheus 原生 API，不走统一埋点面**：method/pattern/
+  status_class 切片标签在原生 CounterVec/HistogramVec 上表达最直接。
+  基础设施组件用原生 API，业务埋点走统一埋点面——两类调用面分立。
+  （埋点面当前为 otel metric API，见 ADR-0007；本文书写时该理由是
+  observ.Meter 契约无 label 维度，理由已随迁移更新，分立决策不变。）
+  pattern 标签用
   ServeMux 匹配模板（Go 1.23+ `r.Pattern`）而非原始 path，基数受路由
   数约束。
 - **可信端点判定复用 trusted_proxies，Link 语义由 otelhttp 原生承担**：
@@ -39,7 +40,7 @@ RequestID → 请求体上限）。它消费模板全部可观测设施，四个
   的话，traceparent 提取（服务间串联）会静默失效。otelc 作为 OTel
   全局装配方，New 时一并安装 W3C（TraceContext + Baggage）复合传播器。
 - **request_id 的中立键（pkg/ctxkey）**："业务日志与链路日志 RequestID
-  统一"要求 otelc 的日志装饰读 httpserver 注入的 ctx 值——键定义在
+  统一"要求 otelc 的链路属性提取器（CtxLogAttrs）读 httpserver 注入的 ctx 值——键定义在
   任何一方都会造成组件间 import 依赖，归中立的 pkg（零第三方依赖），
   双方各自 import。
 - **span 命名回填位置**：otelhttp 在其 ServeHTTP 返回时 `defer
@@ -55,9 +56,10 @@ RequestID → 请求体上限）。它消费模板全部可观测设施，四个
   隐藏全局态，与"全局仅限 zap/otel/meter 三件"的既定边界漂移；
   `WithProm` 接口注入是唯一既显式又能让 httpserver 统一管跳过清单的
   方案。
-- **扩展 observ.Meter 加 label 维度**——拒绝：改外部契约库，波及面大；
-  契约的极小接口是刻意的（ADR-0003 同源立场），基础设施直连原生 API
-  代价为零。
+- **扩展统一埋点面加 label 维度**——拒绝：当时是改外部契约库（observ），
+  波及面大；契约的极小接口是刻意的（ADR-0003 同源立场），基础设施直连
+  原生 API 代价为零。（observ 退役后该理由失效，otel metric API 本就
+  支持 attributes；分立决策不变，理由更新为切片标签的原生形态最直接。）
 - **自写可信判定 + span 提取层（不用 otelhttp）**——最初预期必要，
   核实 otelhttp v0.71 源码（`PublicEndpointFn` 收 `*http.Request`、
   public 路径原生 `WithNewRoot + WithLinks`）后放弃：~80 行自维护代码

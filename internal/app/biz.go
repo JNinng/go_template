@@ -47,12 +47,12 @@ func setupBiz(t *config.Tree, r *runner.Runner, meta Meta) error {
 		return err
 	}
 
-	// zapc 接管 observ 默认日志后端（模板自持的 log: 节被遮蔽，删掉本段
-	// 接线即回落 slog 链路）；配置非法或输出打不开 → 引导失败。
+	// zapc 接管 slog 默认日志后端（稳定桥，模板自持的 log: 节被遮蔽，
+	// 删掉本段接线即回落 slog 链路）；配置非法或输出打不开 → 引导失败。
 	// WithCore(tr.LogCore()) 无条件传参：otelc 未启用 OTLP 日志导出时
 	// LogCore 为 nil，zapc.WithCore(nil) 被忽略，接线无需分支。
-	// WithCtxAttrs(otelc.CtxLogAttrs) 把链路注入沉入 zaplog 适配层：
-	// 走 observ 默认日志器的调用自动带 trace_id/span_id/request_id，
+	// WithCtxAttrs(otelc.CtxLogAttrs) 把链路注入沉入 zapc 桥内部：
+	// 走 slog 默认日志器的调用自动带 trace_id/span_id/request_id，
 	// caller 定位不随封装漂移（须在 zapc 之前装配 otelc，即上文顺序）。
 	_, err = AddComponent(t, r, zapc.SectionName, zapc.Default(),
 		func(c zapc.Config) (*zapc.Log, error) {

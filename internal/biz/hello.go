@@ -7,8 +7,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-
-	"github.com/jninng/observ"
 )
 
 // SectionName 是占位业务组件的配置节名（与包名一致；装配点引用本常量
@@ -28,15 +26,15 @@ type Option func(*Hello)
 
 // WithLogger 显式注入日志面（保留给测试捕获；缺省构造期快照默认——
 // 构造发生在装配点、晚于后端设置，快照即正确后端）。
-func WithLogger(l observ.Logger) Option {
+func WithLogger(l *slog.Logger) Option {
 	return func(h *Hello) { h.logger = l }
 }
 
 // Hello 占位业务组件：启动时输出一句日志，演示组件约定与多组件组合；
 // 项目落地后由真实业务组件替换。
 type Hello struct {
-	cfg    Config        // 构造期固定的配置（占位组件无热更能力，不实现 ApplyConfig）
-	logger observ.Logger // 日志面（构造期快照）
+	cfg    Config       // 构造期固定的配置（占位组件无热更能力，不实现 ApplyConfig）
+	logger *slog.Logger // 日志面（构造期快照）
 }
 
 // New 构造即校验：message 为空在此报错（fail-fast 点）；
@@ -45,7 +43,7 @@ func New(cfg Config, opts ...Option) (*Hello, error) {
 	if cfg.Message == "" {
 		return nil, fmt.Errorf("biz: message must not be empty")
 	}
-	h := &Hello{cfg: cfg, logger: observ.DefaultLogger()}
+	h := &Hello{cfg: cfg, logger: slog.Default()}
 	for _, o := range opts {
 		o(h)
 	}
@@ -55,14 +53,14 @@ func New(cfg Config, opts ...Option) (*Hello, error) {
 // Start 输出占位日志后立即返回（无后台 goroutine，直接可用）；
 // ctx 取消是停机信号之一。
 func (h *Hello) Start(ctx context.Context) error {
-	h.logger.Log(ctx, slog.LevelInfo, "biz_started",
+	h.logger.InfoContext(ctx, "biz_started",
 		slog.String("message", h.cfg.Message))
 	return nil
 }
 
 // Stop 幂等无资源（占位组件无 goroutine、无连接）。
 func (h *Hello) Stop(ctx context.Context) error {
-	h.logger.Log(ctx, slog.LevelInfo, "biz_stopped")
+	h.logger.InfoContext(ctx, "biz_stopped")
 	return nil
 }
 

@@ -57,7 +57,7 @@ func (r *Reg) Section() string { return SectionName }
 
 func (r *Reg) Start(ctx context.Context) error {
 	if !r.cfg.Enabled {
-		r.opt.current().Log(context.Background(), slog.LevelInfo, "nacos_registrar_disabled")
+		r.opt.current().InfoContext(context.Background(), "nacos_registrar_disabled")
 		return nil
 	}
 
@@ -101,7 +101,7 @@ func (r *Reg) Start(ctx context.Context) error {
 
 	r.client = client
 	r.started = true
-	r.opt.current().Log(context.Background(), slog.LevelInfo, "nacos_register_success",
+	r.opt.current().InfoContext(context.Background(), "nacos_register_success",
 		slog.String("service_name", r.serviceName),
 		slog.String("addr", r.cfg.Addr),
 		slog.String("service_ip", ip),
@@ -123,7 +123,7 @@ func (r *Reg) Stop(ctx context.Context) error {
 			Ephemeral:   true,
 		}); err != nil {
 			// 旁路清理失败：告警即可，不阻断停机流程
-			r.opt.current().Log(context.Background(), slog.LevelWarn, "nacos_deregister_failed",
+			r.opt.current().WarnContext(context.Background(), "nacos_deregister_failed",
 				slog.String("service_name", r.serviceName), slog.Any("error", err))
 		}
 	}
@@ -137,7 +137,7 @@ func (r *Reg) Stop(ctx context.Context) error {
 func (r *Reg) failOrSkip(err error) error {
 	if r.cfg.Unreachable == "disable" {
 		attrs := []slog.Attr{slog.String("addr", r.cfg.Addr), slog.Any("error", err)}
-		r.opt.current().Log(context.Background(), slog.LevelWarn, "nacos_registrar_unreachable_disabled", attrs...)
+		r.opt.current().LogAttrs(context.Background(), slog.LevelWarn, "nacos_registrar_unreachable_disabled", attrs...)
 		stderrWarn("nacos_registrar_unreachable_disabled", attrs...)
 		return nil // 旁路降级：显式声明，进程继续运行
 	}

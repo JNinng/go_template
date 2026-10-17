@@ -1,8 +1,8 @@
 // Package greeter 周期打印问候语：内置组件库的完整约定样例——
-// Config/Default、New 构造校验、生命周期、ApplyConfig 热更、observ 注入。
+// Config/Default、New 构造校验、生命周期、ApplyConfig 热更、日志面注入。
 // 直接 import 即可试用；深度定制时拷出到自己的包改造。
 //
-// 第三方依赖：无（仅 stdlib + observ）。
+// 第三方依赖：无（仅 stdlib）。
 package greeter
 
 import (
@@ -11,8 +11,6 @@ import (
 	"log/slog"
 	"sync"
 	"time"
-
-	"github.com/jninng/observ"
 )
 
 // SectionName 是 greeter 的配置节名（组件文档声明的节名升格为代码
@@ -34,7 +32,7 @@ func Default() Config {
 type Option func(*Greeter)
 
 // WithLogger 显式注入日志面（测试捕获用；缺省构造期快照默认）。
-func WithLogger(l observ.Logger) Option {
+func WithLogger(l *slog.Logger) Option {
 	return func(g *Greeter) { g.logger = l }
 }
 
@@ -42,7 +40,7 @@ func WithLogger(l observ.Logger) Option {
 type Greeter struct {
 	mu       sync.Mutex    // 保护 cfg
 	cfg      Config        // 当前生效配置
-	logger   observ.Logger // 日志面（构造于装配点，晚于后端设置，快照即正确后端）
+	logger   *slog.Logger  // 日志面（构造于装配点，晚于后端设置，快照即正确后端）
 	stopOnce sync.Once     // 单次关闸（并发双 Stop 不会重复 close）
 	stop     chan struct{} // 关闸信号
 	done     chan struct{} // loop 回收信号
@@ -67,7 +65,7 @@ func New(cfg Config, opts ...Option) (*Greeter, error) {
 	}
 	g := &Greeter{
 		cfg:    cfg,
-		logger: observ.DefaultLogger(), // 构造期快照
+		logger: slog.Default(), // 构造期快照
 		stop:   make(chan struct{}),
 		done:   make(chan struct{}),
 	}
@@ -96,7 +94,7 @@ func (g *Greeter) loop(ctx context.Context) {
 			return
 		case <-t.C:
 			c := g.current()
-			g.logger.Log(ctx, slog.LevelInfo, "greeter_tick",
+			g.logger.InfoContext(ctx, "greeter_tick",
 				slog.String("message", c.Message))
 			t.Stop()
 		}

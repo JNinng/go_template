@@ -12,8 +12,6 @@ import (
 	"runtime/debug"
 	"syscall"
 	"time"
-
-	"github.com/jninng/observ"
 )
 
 const (
@@ -142,12 +140,14 @@ func (r *Runner) stopStarted() error {
 		err := e.stop(stepCtx)
 		cancel()
 		if err != nil {
-			observ.DefaultLogger().Log(stepCtx, slog.LevelError, "component_stop_failed",
+			// 动态读 slog.Default()：runner 构造可早于日志装配（引导期
+			// 为 discard），不快照。
+			slog.ErrorContext(stepCtx, "component_stop_failed",
 				slog.String("component_name", e.name), slog.Any("error", err),
 				slog.String("stack", string(debug.Stack())))
 		}
 		if time.Now().After(deadline) && i > 0 {
-			observ.DefaultLogger().Log(stepCtx, slog.LevelError, "shutdown_budget_exhausted",
+			slog.ErrorContext(stepCtx, "shutdown_budget_exhausted",
 				slog.Int("remaining_components", i), slog.String("stack", string(debug.Stack())))
 			os.Exit(1)
 		}

@@ -47,11 +47,11 @@ func WithWatch(w Watcher) Option {
 	return func(o *options) { o.watch = w }
 }
 
-// WithCtxAttrs 注入 ctx 属性提取器：经稳定桥（observ 默认日志器）的
-// 每次调用在适配层内部从 ctx 追加属性（链路注入 trace_id/span_id/
+// WithCtxAttrs 注入 ctx 属性提取器：经稳定桥（slog 默认日志器）的
+// 每次调用在桥内部从 ctx 追加属性（链路注入 trace_id/span_id/
 // request_id 等，提取函数由装配点从 otelc.CtxLogAttrs 传入）。注入在
-// zaplog 适配层完成——调用面无装饰层，caller 定位不随封装漂移。只影响
-// 稳定桥，不影响 zap.L() 直调与 Current 调用面。传 nil 忽略。
+// 桥内完成——调用面无装饰层，caller 定位不随封装漂移。只影响稳定桥，
+// 不影响 zap.L() 直调与 Current 调用面。传 nil 忽略。
 func WithCtxAttrs(fn func(context.Context) []slog.Attr) Option {
 	return func(o *options) { o.ctxAttrs = fn }
 }
@@ -66,7 +66,7 @@ func WithEncoderConfig(mutate func(*zapcore.EncoderConfig)) Option {
 // WithOnSwap 注入实例换新回调：初始构建与每次热更重建后以新实例调用一次
 // （锁外执行）。供外部绑定跟随实例的旁路设施；不跟随热更的绑定会在重建
 // 后攥着已关闭的旧实例。回调收到原始实例（skip 0），调用面深度由回调方
-// 自行校准。（observ 默认日志器的接管不走此回调——稳定桥包装 kit，
+// 自行校准。（slog 默认日志器的接管不走此回调——稳定桥包装 kit，
 // 与实例换新正交，见 Log.New。）
 func WithOnSwap(fn func(*zap.Logger)) Option {
 	return func(o *options) { o.onSwap = fn }

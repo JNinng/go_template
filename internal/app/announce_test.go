@@ -8,16 +8,18 @@ import (
 	"strings"
 	"testing"
 
+	"go.opentelemetry.io/otel"
+	"go.uber.org/zap"
+
 	"go_template/internal/runner"
 	"go_template/pkg/version"
-
-	"github.com/jninng/observ"
 )
 
 func TestAnnouncer_StartLogsServiceStarted(t *testing.T) {
 	var buf bytes.Buffer
-	prev := observ.SetDefaultLogger(observ.NewSlogLogger(slog.New(slog.NewTextHandler(&buf, nil))))
-	defer observ.SetDefaultLogger(prev)
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
 
 	a := newAnnouncer(Meta{Name: "demo"}, "prod")
 	if err := a.Start(context.Background()); err != nil {
@@ -44,8 +46,25 @@ const bizTreeYaml = "app:\n  name: demo\nhttpserver:\n  addr: 127.0.0.1:0\nbiz:\
 // 可观测三件套在前，httpserver 消费它们的装配，占位业务在后）。
 var wantBizNames = []string{"otelc", "zapc", "req-log", "promc", "httpserver", "greeter", "biz"}
 
+// restoreGlobals 快照恢复 setupBiz 装的进程级全局（slog 默认、otel
+// TracerProvider 与 MeterProvider、zap 全局），避免污染同包其余测试。
+func restoreGlobals(t *testing.T) {
+	t.Helper()
+	prevSlog := slog.Default()
+	prevTP := otel.GetTracerProvider()
+	prevMP := otel.GetMeterProvider()
+	prevZap := zap.L()
+	t.Cleanup(func() {
+		slog.SetDefault(prevSlog)
+		otel.SetTracerProvider(prevTP)
+		otel.SetMeterProvider(prevMP)
+		zap.ReplaceGlobals(prevZap)
+	})
+}
+
 func TestSetupBiz_WiresPlaceholder(t *testing.T) {
 	t.Chdir(t.TempDir()) // 请求日志兜底目录（log/req.log）落在工作目录
+	restoreGlobals(t)
 	tr, _ := newUseTree(t, bizTreeYaml)
 	r := runner.New()
 	if err := setupBiz(tr, r, Meta{Name: "demo"}); err != nil {
@@ -65,6 +84,7 @@ func TestSetupBiz_WiresPlaceholder(t *testing.T) {
 
 func TestSetupBiz_MissingSectionUsesDefaults(t *testing.T) {
 	t.Chdir(t.TempDir())
+	restoreGlobals(t)
 	tr, _ := newUseTree(t, "other:\n  a: 1\nhttpserver:\n  addr: 127.0.0.1:0\n")
 	r := runner.New()
 	if err := setupBiz(tr, r, Meta{Name: "demo"}); err != nil {
@@ -78,6 +98,7 @@ func TestSetupBiz_MissingSectionUsesDefaults(t *testing.T) {
 func TestRun_MultiComponentOrder(t *testing.T) {
 	// 组合顺序契约：announce 首个启动；业务组件随后；逆序停止跳过 nil stop
 	t.Chdir(t.TempDir())
+	restoreGlobals(t)
 	tr, _ := newUseTree(t, bizTreeYaml)
 	r := runner.New()
 	meta, eff, err := loadMeta(tr, "")

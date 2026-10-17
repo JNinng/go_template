@@ -25,8 +25,7 @@
 // 第三方依赖：go.opentelemetry.io/contrib（otelhttp）+
 // go.opentelemetry.io/otel（trace/semconv/attribute）+ github.com/rs/cors
 // + github.com/prometheus/client_golang + go.uber.org/zap（zapc 已携带）
-// + github.com/jninng/observ + gopkg.in/yaml.v3（删除本目录并
-// go mod tidy 后即从 go.mod 清除）。
+// + gopkg.in/yaml.v3（删除本目录并 go mod tidy 后即从 go.mod 清除）。
 package httpserver
 
 import (
@@ -44,7 +43,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jninng/observ"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/cors"
 	"go.uber.org/zap"
@@ -280,7 +278,7 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			// 技术故障（IO/连接）：Error + stack，仅在错误最底层打一次（§9 日志规范）
-			observ.DefaultLogger().Log(context.Background(), slog.LevelError, "httpserver_server_error",
+			slog.ErrorContext(context.Background(), "httpserver_server_error",
 				slog.Any("error", err),
 				slog.String("stack", string(debug.Stack())))
 		}
@@ -299,7 +297,7 @@ func (s *Server) Start(ctx context.Context) error {
 	if s.opt.version != "" {
 		attrs = append(attrs, slog.String("app_version", s.opt.version))
 	}
-	observ.DefaultLogger().Log(ctx, slog.LevelInfo, "httpserver_server_started", attrs...)
+	slog.Default().LogAttrs(ctx, slog.LevelInfo, "httpserver_server_started", attrs...)
 	return nil
 }
 
@@ -328,7 +326,7 @@ func (s *Server) Stop(ctx context.Context) error {
 		if !s.started.Load() || s.srv == nil {
 			return // 未 Start：无资源
 		}
-		observ.DefaultLogger().Log(ctx, slog.LevelInfo, "httpserver_server_stopping",
+		slog.InfoContext(ctx, "httpserver_server_stopping",
 			slog.Bool("drain_aware", s.drainAware.Load()))
 		if s.drainAware.Load() {
 			s.drain.Store(true)               // readiness 摘流：负载均衡在下一个探测周期摘除本实例
@@ -336,10 +334,10 @@ func (s *Server) Stop(ctx context.Context) error {
 		}
 		begin := time.Now()
 		if err := s.srv.Shutdown(ctx); err != nil {
-			observ.DefaultLogger().Log(ctx, slog.LevelWarn, "httpserver_server_stop_failed",
+			slog.WarnContext(ctx, "httpserver_server_stop_failed",
 				slog.Any("error", err))
 		}
-		observ.DefaultLogger().Log(ctx, slog.LevelInfo, "httpserver_server_stopped",
+		slog.InfoContext(ctx, "httpserver_server_stopped",
 			slog.Int64("drain_ms", time.Since(begin).Milliseconds()))
 	})
 	return nil
@@ -357,8 +355,7 @@ func (s *Server) ApplyConfig(cfg Config) error {
 		return err
 	}
 	if changed := coldChanges(s.cfg, cfg); len(changed) > 0 {
-		observ.DefaultLogger().Log(context.Background(), slog.LevelWarn,
-			"httpserver_config_restart_required",
+		slog.WarnContext(context.Background(), "httpserver_config_restart_required",
 			slog.String("changed_fields", strings.Join(changed, ",")))
 	}
 	proxies, err := trust.NewTable(cfg.TrustedProxies)

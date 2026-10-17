@@ -1,21 +1,28 @@
 // Package promc 是内置组件库的指标与健康检查组件：Prometheus 私有
-// registry（预挂 Go 运行时与进程 collectors）以 adapters/prom 实现
-// observ.Meter——埋点面（observ.Meter）与导出面（client_golang 私有
-// registry）由此闭环；暴露形态缺省为 handler 注入（MetricsHandler /
-// HealthHandler 挂到业务路由，httpserver 单端口收编），配置独立
-// addr 时才自起 HTTP Server。包名取 prometheus 之意拼 c（对齐 zapc
-// 拼法，约定见库 README）。
+// registry（预挂 Go 运行时与进程 collectors）以 otel prometheus 导出器
+// 实现 metric.Reader——埋点面（otel metric API，经 SetMeterProvider 安装
+// 的全局 MeterProvider）与导出面（client_golang 私有 registry 的 /metrics）
+// 由此闭环；暴露形态缺省为 handler 注入（MetricsHandler / HealthHandler
+// 挂到业务路由，httpserver 单端口收编），配置独立 addr 时才自起 HTTP
+// Server。包名取 prometheus 之意拼 c（对齐 zapc 拼法，约定见库 README）。
 //
-// New 即安装 observ 默认 Meter（DefaultMeter，与 zapc 接管默认日志
-// 同款）：其后构造的业务组件未注入 Meter 时构造期回落本组件的出口，
-// 免逐组件穿线。仪器绑定构造时刻——本组件须先于业务组件接线；显式
-// WithMeter 注入仍可覆盖默认。
+// New 即安装全局 MeterProvider（otel.SetMeterProvider，与 zapc 接管默认
+// 日志同款）：otel 仪表绑定创建时刻的 provider——本组件须先于业务组件
+// 接线；先建的仪表固定在全局缺省（noop，零导出），不追溯迁移。未装配
+// 本组件时 otel 全局即 noop provider，"缺省不埋点"零依赖达成。
+// 基础设施组件需要 label 维度（切片标签）时经 Registry() 直挂
+// client_golang collector，与 otel 仪表同场导出。
+//
+// otel 仪表命名口径：仪表名不带 _total/_seconds 后缀（由导出器按类型与
+// 单位追加），counter 配 WithUnit("1")、耗时配 WithUnit("s")——导出的
+// 指标名保持 snake_case + 后缀的既定口径（*_total / *_seconds），仪表盘
+// 与跨库聚合不受影响。
 //
 // 健康检查为命名项聚合：全部通过 200，任一失败 503；零登记恒 healthy。
 // 跨组件检查由装配点胶水登记（RegisterCheck），组件间互不 import。
 //
 // 第三方依赖：github.com/prometheus/client_golang +
-// github.com/jninng/observ/adapters/prom + github.com/jninng/observ
+// go.opentelemetry.io/otel/exporters/prometheus + go.opentelemetry.io/otel
 // （删除本目录并 go mod tidy 后即从 go.mod 清除）。
 package promc
 
@@ -28,31 +35,34 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/jninng/observ"
-	promAdapter "github.com/jninng/observ/adapters/prom"
+	"go.opentelemetry.io/otel"
+	promexporter "go.opentelemetry.io/otel/exporters/prometheus"
+	otelmetric "go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/sdk/metric"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Prom 是指标与健康检查的组件壳：New 构造 registry 与路由（无副作用、
-// 不监听），Start 监听并起服务 goroutine，Stop 优雅关停。
+// 不监听），Start 监听并起服务 goroutine，Stop 优雅关停并回收 provider。
 type Prom struct {
 	cfg      Config
 	srv      *http.Server
 	registry *prometheus.Registry
-	meter    observ.Meter
+	provider *metric.MeterProvider
 	health   *Handler
 	metricsH http.Handler
 	addr     string // 实际监听地址（Start 时确定；配置为 :0 时端口由内核分配）
 	once     sync.Once
 }
 
-// New 构造即校验：私有 registry 预挂 Go 运行时与进程 collectors，
-// /metrics 与 /health 同 mux；并把 meter 安装为 observ 默认（构造期
-// 快照语义——其后构造的组件回落本出口，已建仪表不迁移、不追溯，故
-// 本组件须先于业务组件接线；多实例构造后者胜，Stop 不回退）。失败即
-// 未启动、未安装默认，无资源需要清理。
+// New 构造即校验：私有 registry 预挂 Go 运行时与进程 collectors，otel
+// prometheus 导出器注册进同一 registry（/metrics 与 /health 同 mux），
+// 并把 provider 安装为 otel 全局（仪表绑定构造时刻——其后构造的业务
+// 仪表自动路由到本组件出口；多实例构造后者胜，Stop 不回退）。失败即
+// 未启动、未安装全局，无资源需要清理。
 func New(cfg Config) (*Prom, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -63,27 +73,39 @@ func New(cfg Config) (*Prom, error) {
 		collectors.NewGoCollector(),
 	)
 	health := NewHandler()
+	exp, err := promexporter.New(
+		promexporter.WithRegisterer(reg),
+		// 资源与 scope 未接线：target_info / scope_info 只会输出空标签
+		// 噪声，显式关闭（接线 OTel resource 后可移除）。
+		promexporter.WithoutTargetInfo(),
+		promexporter.WithoutScopeInfo(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("promc: prometheus exporter: %w", err)
+	}
+	provider := metric.NewMeterProvider(metric.WithReader(exp))
+	otel.SetMeterProvider(provider)
 	metricsH := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
 	mux := http.NewServeMux()
 	mux.Handle(cfg.MetricsPath, metricsH)
 	mux.Handle(cfg.HealthPath, health)
-	meter := promAdapter.New(reg)
-	observ.SetDefaultMeter(meter)
 	return &Prom{
 		cfg:      cfg,
 		srv:      &http.Server{Addr: cfg.Addr, Handler: mux},
 		registry: reg,
-		meter:    meter,
+		provider: provider,
 		health:   health,
 		metricsH: metricsH,
 	}, nil
 }
 
-// Meter 返回注册到私有 registry 的 observ.Meter。New* 属构造期调用
-// （禁止热路径，见 observ 契约）；装配点把它经 WithMeter 注入业务组件。
-// 在 prometheus 默认 registry 上注册的自定义 collector 不会出现在
-// /metrics——一律经本 Meter 或 Registry() 注册。
-func (p *Prom) Meter() observ.Meter { return p.meter }
+// Meter 返回全局 provider 下指定 instrumentation scope 的 otel 仪表面。
+// scope 惯例传调用方 import 路径（对齐 OTel 语义约定）；仪表的 New* 属
+// 构造期调用（禁止热路径），且须晚于本组件接线（否则绑定 noop 全局、
+// 永不导出）。未注入场景也可直接用 otel.GetMeterProvider().Meter(scope)
+// ——全局即本组件安装的 provider。在私有 registry 上注册的自定义
+// collector 不会出现在 /metrics——一律经 Registry() 注册。
+func (p *Prom) Meter(scope string) otelmetric.Meter { return p.provider.Meter(scope) }
 
 // Registry 返回私有 registry（注册自定义 prometheus.Collector 用）。
 func (p *Prom) Registry() prometheus.Registerer { return p.registry }
@@ -113,7 +135,7 @@ func (p *Prom) Section() string { return SectionName }
 
 func (p *Prom) Start(ctx context.Context) error {
 	if p.cfg.Addr == "" {
-		observ.DefaultLogger().Log(ctx, slog.LevelInfo, "promc_server_skipped",
+		slog.InfoContext(ctx, "promc_server_skipped",
 			slog.String("reason", "addr_empty"),
 			slog.String("metrics_path", p.cfg.MetricsPath),
 			slog.String("health_path", p.cfg.HealthPath))
@@ -126,11 +148,12 @@ func (p *Prom) Start(ctx context.Context) error {
 	p.addr = ln.Addr().String()
 	go func() {
 		if err := p.srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			observ.DefaultLogger().Log(context.Background(), slog.LevelWarn, "promc_server_error",
+			// 动态读 slog.Default()：server goroutine 生命周期横跨日志装配
+			slog.WarnContext(context.Background(), "promc_server_error",
 				slog.Any("error", err))
 		}
 	}()
-	observ.DefaultLogger().Log(ctx, slog.LevelInfo, "promc_server_started",
+	slog.InfoContext(ctx, "promc_server_started",
 		slog.String("addr", p.addr),
 		slog.String("metrics_path", p.cfg.MetricsPath),
 		slog.String("health_path", p.cfg.HealthPath))
@@ -146,15 +169,20 @@ func (p *Prom) Addr() string {
 	return p.cfg.Addr
 }
 
-// Stop 在停机预算内优雅关停（排空在途请求）；幂等可重入，关停失败
-// 降级为警告日志（不视作停机失败）。addr 为空（未自起 server）时空操作。
+// Stop 在停机预算内优雅关停（排空在途请求）并回收 provider（刷尽
+// 导出器在途状态）；幂等可重入，失败降级为警告日志（不视作停机失败）。
+// 全局 provider 指派不回退（进程收尾语义）。addr 为空（未自起 server）
+// 时仍回收 provider。
 func (p *Prom) Stop(ctx context.Context) error {
 	p.once.Do(func() {
-		if p.cfg.Addr == "" {
-			return
+		if p.cfg.Addr != "" {
+			if err := p.srv.Shutdown(ctx); err != nil {
+				slog.WarnContext(ctx, "promc_server_stop_failed",
+					slog.Any("error", err))
+			}
 		}
-		if err := p.srv.Shutdown(ctx); err != nil {
-			observ.DefaultLogger().Log(ctx, slog.LevelWarn, "promc_server_stop_failed",
+		if err := p.provider.Shutdown(ctx); err != nil {
+			slog.WarnContext(ctx, "promc_provider_shutdown_failed",
 				slog.Any("error", err))
 		}
 	})

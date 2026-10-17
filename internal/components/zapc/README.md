@@ -2,13 +2,12 @@
 
 把 `go.uber.org/zap` 装配为生命周期组件：启停装全局、配置热更（级别即时生效，
 其余变更重建实例）、文件轮转（lumberjack）。包名拼 `c` 与 `go.uber.org/zap`
-消解同名（约定见库 README）。接线即**接管 observ 默认日志器**（稳定桥，
-热更重建自动跟随）——业务既有 observ 调用零改动即换到 zap 后端，模板自持的
+消解同名（约定见库 README）。接线即**接管 slog 默认日志器**（稳定桥，
+热更重建自动跟随）——业务既有 slog 调用零改动即换到 zap 后端，模板自持的
 `log:` 节被遮蔽（删掉接线即回落 slog 链路）。调用面三通道等价：`zap.L()` /
-`zap.S()`（全局）、kit 的 `Info` / `Check`、observ（业务侧）。
+`zap.S()`（全局）、kit 的 `Info` / `Check`、slog（业务侧）。
 
-**第三方依赖**：`go.uber.org/zap` + `gopkg.in/natefinch/lumberjack.v2`（轮转）+
-`github.com/jninng/observ/adapters/zaplog`（observ 桥）。
+**第三方依赖**：`go.uber.org/zap` + `gopkg.in/natefinch/lumberjack.v2`（轮转）。
 删除本目录并 `go mod tidy` 后即从 go.mod 清除。
 
 ## 接入（复制即用，无需 go get——组件已在本模块内）
@@ -63,17 +62,17 @@ zapc:
 - **caller 双实例**：构建即启用 caller，实例分两份——原始实例（skip 0）供
   `zap.L()` / `Current()` 直调，跳一层实例（`AddCallerSkip(1)`）供 kit 封装
   方法；两条调用面的 caller 都定位到用户代码行，热更换新成对换
-- **observ 稳定桥**：`New` 起以 `zaplog.NewDynamic(kit.CurrentSkip1)`
-  构造稳定桥并接管 observ 默认日志器——桥包装 kit 而非实例，热更重建
-  只换 kit 内实例、桥自动跟随，`SetDefaultLogger` 进程内一次性完成，
-  接管不感知既有默认日志器的形态。caller skip 在实例侧烘焙（跳一层恒
-  补偿 zaplog 适配帧），调用面无装饰层，定位不随封装漂移。外部旁路
+- **slog 稳定桥**：`New` 起以 `NewBridge(kit.Current)` 构造稳定桥并接管
+  slog 默认日志器——桥包装 kit 而非实例，热更重建只换 kit 内实例、桥
+  自动跟随，`slog.SetDefault` 进程内一次性完成，接管不感知既有默认日志器
+  的形态。caller 定位取 slog Record 自带的 PC，不经 zap 栈回溯、无需
+  skip 烘焙，调用面无装饰层，定位不随封装漂移。外部旁路
   设施（不随 kit 走的绑定）仍走 `WithOnSwap` 钩子
-- **WithCtxAttrs 链路注入**：经稳定桥的每次调用在 zaplog 适配层内部
-  从 ctx 追加属性（装配点传 `otelc.CtxLogAttrs`，本组件不 import
-  otel）——trace_id/span_id/request_id 自动附带，无装饰层、caller
+- **WithCtxAttrs 链路注入**：经稳定桥的每次调用在桥内部从 ctx 追加属性
+  （装配点传 `otelc.CtxLogAttrs`，本组件不 import otel）——
+  trace_id/span_id/request_id 自动附带，无装饰层、caller
   恒定。只影响稳定桥，`zap.L()` / `Current` 直调不受影响；未传时不
-  注入（接管会整体替换此前安装的 observ 默认，含已有装饰）
+  注入（接管会整体替换此前安装的 slog 默认，含已有装饰）
 - **WithEncoderConfig 编码定制**：以基准 `EncoderConfig` 为入参的就地
   修改函数（如请求日志关 caller：置空 `CallerKey`），构建期属性、
   初始构建与热更重建都生效，不改 yaml 配置面
@@ -126,13 +125,16 @@ zapc:
 |---------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------|
 | `Default() Config`                                                                                | 默认值基座（与 `config.Decode` 成对使用）                                                |
 | `(Config).Validate() error`                                                                       | 校验取值，构造期与热更期共用同一拒绝标准                                                         |
-| `New(cfg Config) (*Log, error)`                                                                   | 构造即校验并打开 sink；失败即未启动，无资源需清理                                                  |
+| `New(cfg Config, ...Option) (*Log, error)`                                                        | 构造即校验并打开 sink，经稳定桥接管 slog 默认；失败即未启动，无资源需清理                                  |
 | `(*Log).Start(ctx) error`                                                                         | `zap.ReplaceGlobals` 安装全局后立即返回                                               |
 | `(*Log).Stop(ctx) error`                                                                          | Sync 刷盘 + 释放句柄；幂等可重入                                                         |
 | `(*Log).ApplyConfig(Config) error`                                                                | 热更入口（委托 kit.Apply）：级别即时 / 其余重建，收敛语义                                          |
+| `WithCtxAttrs(fn func(context.Context) []slog.Attr) Option`                                       | `New` 可选项：链路属性提取器（装配点传 `otelc.CtxLogAttrs`），注入稳定桥；nil 忽略                      |
+| `WithEncoderConfig(mutate func(*zapcore.EncoderConfig)) Option`                                    | `New` / `NewLogger` 可选项：编码器定制（如请求日志关 caller），构建期属性                          |
 | `Watcher func(apply func(Config) error) (cancel func())`                                          | 配置订阅能力（与 `config.Watch` 结构化对齐），装配点注入                                         |
 | `WithWatch(Watcher) Option`                                                                       | `NewLogger` 可选项：注入订阅，取消并入 Close                                              |
 | `WithCore(core zapcore.Core) Option`                                                              | `New` / `NewLogger` 可选项：旁路 core 并入 tee（热更重建自动带上，nil 忽略），供跨组件组合（如 otelc 日志导出） |
-| `WithOnSwap(fn func(*zap.Logger)) Option`                                                            | `NewLogger` 可选项：实例换新回调（初始 + 每次热更重建），供 observ 桥等旁路绑定跟随；zapc.New 的接管即依赖内置回调，再传此选项会将其顶掉 |
+| `WithOnSwap(fn func(*zap.Logger)) Option`                                                            | `NewLogger` 可选项：实例换新回调（初始 + 每次热更重建），供外部旁路绑定跟随；接管经稳定桥包装 kit，与本回调无关 |
 | `NewLogger(cfg Config, ...Option) (LoggerKit, error)`                                             | 工厂：实例与热更状态收于 kit 内部，其他自建 zap 日志的组件复用                                         |
+| `NewBridge(current func() *zap.Logger, ...BridgeOption) slog.Handler`                             | 稳定桥：slog.Handler → 动态 zap 实例（`New` 的接管机制；也可供自定义装配复用）                    |
 | `LoggerKit` 方法：`Debug / Info / Warn / Error / DPanic / Check / Current / Apply / Rebuild / Close` | 调用面（Error 自带调用方栈；Check 级别禁用返回 nil）、当前实例（热更自动跟随）、智能热更入口、强制重建、取消订阅 + 释放句柄      |

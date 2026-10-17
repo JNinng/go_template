@@ -14,8 +14,6 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"gopkg.in/yaml.v3"
-
-	"github.com/jninng/observ"
 )
 
 // Source 是远程配置提供方契约：每次配置变更以全量快照调用 push（非增量），
@@ -75,7 +73,7 @@ func (t *Tree) watchFiles() {
 	}
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
-		observ.DefaultLogger().Log(context.Background(), slog.LevelError, "config_file_watch_init_failed",
+		slog.ErrorContext(context.Background(), "config_file_watch_init_failed",
 			slog.Any("error", err), slog.String("stack", string(debug.Stack())))
 		return
 	}
@@ -85,7 +83,7 @@ func (t *Tree) watchFiles() {
 	}
 	for d := range dirs {
 		if err := w.Add(d); err != nil {
-			observ.DefaultLogger().Log(context.Background(), slog.LevelError, "config_file_watch_init_failed",
+			slog.ErrorContext(context.Background(), "config_file_watch_init_failed",
 				slog.String("watch_dir", d), slog.Any("error", err),
 				slog.String("stack", string(debug.Stack())))
 			w.Close()
@@ -107,7 +105,7 @@ func (t *Tree) watchFiles() {
 				if !ok {
 					return
 				}
-				observ.DefaultLogger().Log(context.Background(), slog.LevelError, "config_file_watch_failed",
+				slog.ErrorContext(context.Background(), "config_file_watch_failed",
 					slog.Any("error", err), slog.String("stack", string(debug.Stack())))
 			}
 		}
@@ -140,7 +138,7 @@ func (t *Tree) reload(path string) {
 		time.Sleep(150 * time.Millisecond)
 	}
 	if err != nil {
-		observ.DefaultLogger().Log(context.Background(), slog.LevelError, "config_reload_failed",
+		slog.ErrorContext(context.Background(), "config_reload_failed",
 			slog.String("file_path", path), slog.Any("error", err),
 			slog.String("stack", string(debug.Stack())))
 		return

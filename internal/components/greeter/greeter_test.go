@@ -7,8 +7,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/jninng/observ"
 )
 
 // syncBuffer 串行化并发读写：greeter goroutine 经 handler 写、测试
@@ -41,7 +39,7 @@ func TestNew_Validation(t *testing.T) {
 
 func TestLifecycle_TicksThenStopsIdempotently(t *testing.T) {
 	buf := &syncBuffer{}
-	logger := observ.NewSlogLogger(slog.New(slog.NewTextHandler(buf, nil)))
+	logger := slog.New(slog.NewTextHandler(buf, nil))
 
 	h, err := New(Config{Message: "hi", IntervalSec: 1}, WithLogger(logger))
 	if err != nil {

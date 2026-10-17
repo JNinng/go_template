@@ -1,5 +1,11 @@
 # 可观测组件进内置库与 observ ctx 演进
 
+> **修订**：observ 契约库已退役，日志面收敛 slog、指标面收敛 otel metric API（ADR-0007）。
+> 两组件分立、otelc 恒建 provider、promc 私有 registry 的决策不变；"日志注入做在
+> observ 边界装饰层"一项被翻转——引导层 discard 默认使 slog handler 装饰脱离
+> 自环死锁前置条件：未接 zapc 时 otelc 链路注入为 slog.Handler 装饰，接
+> zapc 时注入沉入桥内（守卫见 otelc/logtrace）。
+
 内置组件库新增两个可观测组件，并为此对 observ 契约库做了一次破坏性演进：
 
 - **otelc**（OTel 链路追踪）：装配全局 TracerProvider（OTLP gRPC/HTTP

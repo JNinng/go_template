@@ -7,7 +7,7 @@ nacos 双角色客户端，两角色分立配置、独立客户端、互不共�
 
 实例标识（service name / port）由装配点显式传入（service name 传模板元数据 `meta.Name`）。
 
-**第三方依赖**：`github.com/nacos-group/nacos-sdk-go/v2` + `github.com/jninng/observ`。
+**第三方依赖**：`github.com/nacos-group/nacos-sdk-go/v2`。
 删除本目录并 `go mod tidy` 后即从 go.mod 清除。
 
 ## 接入（复制即用，无需 go get——组件已在本模块内）
@@ -69,9 +69,9 @@ nacos:
 ## 行为契约
 
 - **全量快照**：每次变更推送整份 dataId 内容的解析结果（yaml）；空内容 = 空快照（删除语义）；解析失败告警丢弃、维持上一有效快照
-- **unreachable 策略**：`fail`（缺省）→ 引导失败退出码 1；`disable` → observ + stderr
-  双通道告警后降级（config：纯本地配置、热更停摆；registrar：旁路运行、暂不被发现）。降级告警走双通道是因为源触点早于日志装配，单靠
-  observ 会被 Noop 吞掉
+- **unreachable 策略**：`fail`（缺省）→ 引导失败退出码 1；`disable` → slog + stderr
+  双通道告警后降级（config：纯本地配置、热更停摆；registrar：旁路运行、暂不被发现）。降级告警走双通道是因为源触点早于日志装配（默认
+  日志器仍是 discard），单靠 slog 会被 discard 吞掉
 - **本组件全部字段不热更**：连接参数无法热切换，不实现 `ApplyConfig`，变更仅下次启动生效
 - **地址严格校验**：畸形 addr（非法端口等）无论策略如何都构造期 fail-fast
 - **本地探测**：`service_ip` 缺省时向服务中心地址做 UDP 拨号探测出口 IP（不实际发包）
@@ -101,4 +101,4 @@ nacos:
 | `NewReg(cfg Config, serviceName string, port int, opts ...Option) (*Reg, error)` | 构造即校验；enabled=false 返回旁路实例            |
 | `(*Reg).Start(ctx) error`                                                        | 注册实例（Ephemeral，心跳由 SDK 维持）            |
 | `(*Reg).Stop(ctx) error`                                                         | 注销 + 释放连接；幂等可重入                       |
-| `WithLogger(observ.Logger) Option`                                               | 显式注入日志面（测试捕获用；缺省动态读默认）                |
+| `WithLogger(*slog.Logger) Option`                                                | 显式注入日志面（测试捕获用；缺省动态读默认）                |

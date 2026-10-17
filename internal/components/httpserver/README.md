@@ -11,15 +11,16 @@
   ——`LoggerFrom(ctx)` 由 zap 全局逐请求派生、预绑定
   `request_id`/`trace_id`/`span_id`，业务日志归应用流，req.log 只放
   访问记录（直调 `zap.L()` 同源但无预绑定字段）。低频生命周期日志走
-  observ（`httpserver_server_started` / `_stopping` / `_stopped`）
+  slog（`httpserver_server_started` / `_stopping` / `_stopped`）
 - **tracing**：otelhttp 经 otel 全局 TracerProvider（otelc 装配）；可信
   来源继承 `traceparent` 为父 span，不可信来源新建 root span 并把外部
   traceparent 转为 **Link**（防伪造污染拓扑，排查仍可回溯）；span 名
   在路由匹配后回填为 `GET /api/{id}` 并补 `http.route` 属性
 - **指标**：`httpserver_requests_total`（method/pattern/status_class）
   与 `httpserver_request_duration_seconds`（method/pattern）注册到
-  promc 私有 registry——`observ.Meter` 契约无 label 维度，基础设施
-  直连 prometheus 原生 API（ADR-0005）
+  promc 私有 registry——method/pattern/status_class 切片标签在原生
+  CounterVec/HistogramVec 上表达最直接，与 otel 业务仪表同场导出
+  （ADR-0005）
 - **单端口收编**：promc 的 `/metrics` `/health` 经 `WithProm` 挂进业务
   路由（promc.addr 缺省空 = 不自起独立 server），readiness 复用其健康
   检查聚合
@@ -27,7 +28,7 @@
 **第三方依赖**：`go.opentelemetry.io/contrib`（otelhttp）+
 `go.opentelemetry.io/otel` + `github.com/rs/cors` +
 `github.com/prometheus/client_golang` + `go.uber.org/zap`（zapc 已携带）
-+ `github.com/jninng/observ` + `gopkg.in/yaml.v3`。
++ `gopkg.in/yaml.v3`。
 删除本目录并 `go mod tidy` 后即从 go.mod 清除。
 依赖 promc 的接缝是 `PromProvider` 接口（结构化类型），本包不 import
 promc——组件间零依赖约定不破。
@@ -127,7 +128,8 @@ httpserver:
   响应未开头时写 500 JSON；panic 请求不进常规访问日志与指标（信息由
   专门日志承载）——Recovery 在链最外层，含 CORS 层的 panic 一并捕获
 - **RequestID**：`X-Request-ID` 合法（`^[A-Za-z0-9._-]{1,64}$`）→ 注入
-  ctx（`pkg/ctxkey`，otelc 日志装饰自动附带 request_id）+ 原样回写
+  ctx（`pkg/ctxkey`；otelc.CtxLogAttrs 提取，接 zapc 时经桥注入、未接时
+  经 slog 装饰附带 request_id）+ 原样回写
   响应头；缺失/非法静默忽略，TraceID 兜底（与 span 同源），无链路时
   crypto/rand 32 hex——恒有值。业务侧 `httpserver.RequestID(r.Context())`
 - **TraceID**：span 有效时响应头 `X-Trace-ID` 回显本服务端 span 的
