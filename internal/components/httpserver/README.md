@@ -159,7 +159,7 @@ httpserver:
   重建（换端口/换证书）不做热更
 - **并发纪律**：热更态全走原子变量（代理网段表/CORS 实例整体快照替换）；
   中间件链 Start 时组装一次；单请求的共享状态（reqState）串行访问
-- **已知限制**：HTTP+HTTPS 双监听、TLS 证书热轮换、请求体multipart
+- **已知限制**：HTTP+HTTPS 双监听、TLS 证书热轮换、请求体 multipart
   细粒度校验均不在范围；公网部署应收紧 `pprof`、`cors.allowed_origins`
   与 `trusted_proxies`
 
@@ -192,10 +192,12 @@ httpserver:
 | `New(cfg Config, ...Option) (*Server, error)` | 构造即校验并挂载内置端点（不监听）；失败无资源需清理 |
 | `WithService(name, env, ver string) Option` | 服务标识：服务名进实例 ID 与启动日志 |
 | `WithProm(p PromProvider) Option` | 注入 promc（单端口收编接线点；接口满足即零 import） |
+| `WithAccessLogger(get func() *zap.Logger) Option` | 注入请求日志记录器（每请求取当前实例，热更自动跟随；nil 回落 `zap.L()`） |
 | `(*Server).Start(ctx) error` | 组装中间件链 + 同步监听（绑定错误 fail-fast） |
 | `(*Server).Stop(ctx) error` | 三步走优雅停机；幂等，失败降级警告 |
 | `(*Server).ApplyConfig(cfg Config) error` | 热更（范围见上）；冷字段警告后跳过 |
 | `(*Server).Handle / HandleFunc(pattern, h)` | 注册业务路由（仅 Start 前；非法 pattern 当场 panic） |
 | `(*Server).Addr() string` | 实际监听地址（nacos 注册等装配点用） |
 | `RequestID(ctx) string` | 业务侧取 RequestID（中间件注入） |
+| `LoggerFrom(ctx) *zap.Logger` | 请求作用域记录器（预绑定 request_id/trace_id/span_id；非请求语境回落 zap 全局） |
 | `InstanceID(service string) string` | 实例 ID 解析（响应头/OTel resource/启动日志单一事实源） |

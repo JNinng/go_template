@@ -101,7 +101,7 @@ mux.Handle(pm.HealthPath(), pm.HealthHandler())
 | `New(cfg Config) (*Prom, error)`                    | 构造 registry 与路由（无副作用、不监听）并安装 otel 全局 MeterProvider；失败无资源需清理 |
 | `(*Prom).Start(ctx) error`                          | addr 非空时同步监听（绑定错误 fail-fast）后起服务 goroutine；addr 为空跳过 |
 | `(*Prom).Stop(ctx) error`                           | 预算内优雅关停并回收 provider（addr 为空时仍回收）；幂等，失败降级警告   |
-| `(*Prom).Meter(scope string) metric.Meter`          | 本组件安装的 provider 下指定 scope 的 otel 仪表面（`metric.Meter`，单实例时即全局；缺省直接用 `otel.GetMeterProvider().Meter(scope)`） |
+| `(*Prom).Meter(scope string) metric.Meter`          | 本组件安装的 provider 下指定 scope 的 otel 仪表面（`metric.Meter` 即 `go.opentelemetry.io/otel/metric`，单实例时即全局；缺省直接用 `otel.GetMeterProvider().Meter(scope)`） |
 | `(*Prom).Registry() prometheus.Registerer`          | 私有 registry（自定义 Collector 注册用）              |
 | `(*Prom).RegisterCheck(name string, fn CheckFunc)`  | 登记命名健康检查（装配点胶水）                             |
 | `(*Prom).MetricsHandler() http.Handler`             | `/metrics` 等价 handler（单端口注入用）               |

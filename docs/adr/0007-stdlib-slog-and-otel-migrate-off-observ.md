@@ -9,8 +9,8 @@ promc 的 `otel.SetMeterProvider` 安装）。observ 及其两个适配器
 ## 背景
 
 observ 是零依赖 Logger/Meter 两方法小接口 + 包级默认 + Noop 回落的契约库
-（ADR-0003/0004/0006 的沿革）。其存在理由是"组件侧最小抽象 + 缺省零开销"
-。迁移的直接动因有三：
+（ADR-0003/0004/0006 的沿革）。其存在理由是"组件侧最小抽象 + 缺省零开销"。
+迁移的直接动因有三：
 
 - **日志面与 slog 能力重合**：observ.Logger（Enabled/Log 两方法、ctx 携带、
   slog 类型复用）对 `*slog.Logger` 已无增量——WithAttrs、级别门控、ctx

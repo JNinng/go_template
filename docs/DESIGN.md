@@ -60,7 +60,7 @@
 ## 4. 架构总览
 
 ```
-main.go（3 行：internal/cmd.Execute()）
+main.go（仅调用 internal/cmd.Execute()）
  └─ cobra root = run（默认命令）
      └─ app.Run（唯一启动时序）
          0. 默认静默       slog.SetDefault(discard)——日志后端装配前零输出（§9）
@@ -93,7 +93,7 @@ main.go（3 行：internal/cmd.Execute()）
 <module>/
 ├── README.md                  # 五步 quickstart + 组件引入指引（指向 docs/）
 ├── LICENSE                    # MIT
-├── cmd/app/main.go            # 3 行：internal/cmd.Execute()
+├── cmd/app/main.go            # 仅调用 internal/cmd.Execute()
 ├── internal/
 │   ├── app/
 │   │   ├── app.go             # Run()：默认静默 → config → sources → logging → meta → biz → runner 时序
@@ -144,8 +144,8 @@ log:
 ```
 
 - Go 版本要求：1.25+
-- 模板 go.mod 第三方依赖白名单：`github.com/spf13/cobra`、`gopkg.in/yaml.v3`、`github.com/fsnotify/fsnotify`
-  （日志面为 stdlib `slog`，零第三方依赖）
+- 模板骨架自有代码的第三方依赖白名单：`github.com/spf13/cobra`、`gopkg.in/yaml.v3`、`github.com/fsnotify/fsnotify`
+  （日志面为 stdlib `slog`，零第三方依赖；其余依赖随内置组件进入，删除组件即清零）
 
 ## 6. 命令体系
 
@@ -767,7 +767,7 @@ tracing 与日志导出）、`internal/components/promc`（指标与健康检查
 
 接入要点（详见组件 README）：
 
-- 两组件均不热更（启动期配置），资源标识（service.name / env / version）不经
+- otelc 与 promc 均不热更（启动期配置），资源标识（service.name / env / version）不经
   yaml——装配点从应用元数据与构建元数据传入（`WithService(meta.Name, effEnv, version.Version)`）
 - otelc 的承重行为：endpoint 为空也安装 TracerProvider，trace_id 生成
   与日志关联照常工作，仅不导出；endpoint 非空才创建 OTLP 导出器
