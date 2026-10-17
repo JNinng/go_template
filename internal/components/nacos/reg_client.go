@@ -46,15 +46,15 @@ func NewReg(cfg Config, serviceName string, port int, opts ...Option) (*Reg, err
 	return &Reg{cfg: c, serviceName: serviceName, port: port, opt: newOptions(opts)}, nil
 }
 
+// Section 返回本组件的配置节名（统一节名获取接口，恒返回 SectionName）。
+func (r *Reg) Section() string { return SectionName }
+
 // Start 连接服务中心并注册实例（Ephemeral：心跳由 SDK 维持）。
 // 不可达归化（unreachable 策略）：fail（缺省）→ 返回 error，装配点 fail-fast；
 // disable → 记显著告警、旁路降级（服务功能完整，只是暂不被发现），返回 nil。
 // 注册窗口内的一切错误——拨号不通、鉴权失败、参数被服务端拒绝——在
 // disable 下一律旁路降级；已知代价是鉴权配置错误时静默不注册、仅一条
 // Warn，靠告警巡检兜住。
-// Section 返回本组件的配置节名（统一节名获取接口，恒返回 SectionName）。
-func (r *Reg) Section() string { return SectionName }
-
 func (r *Reg) Start(ctx context.Context) error {
 	if !r.cfg.Enabled {
 		r.opt.current().InfoContext(context.Background(), "nacos_registrar_disabled")

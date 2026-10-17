@@ -118,11 +118,11 @@ func New(cfg Config, opts ...Option) (*Tracer, error) {
 // 未启用时返回 nil；zapc.WithCore(nil) 会被忽略。
 func (t *Tracer) LogCore() zapcore.Core { return t.logCore }
 
-// Start 输出启动信号后立即返回（provider 在构造期已生效，无后台
-// goroutine）；导出属批量异步，由 SDK 自行驱动。
 // Section 返回本组件的配置节名（统一节名获取接口，恒返回 SectionName）。
 func (t *Tracer) Section() string { return SectionName }
 
+// Start 输出启动信号后立即返回（provider 在构造期已生效，无后台
+// goroutine）；导出属批量异步，由 SDK 自行驱动。
 func (t *Tracer) Start(ctx context.Context) error {
 	attrs := []slog.Attr{slog.String("protocol", t.cfg.Protocol)}
 	if t.cfg.Endpoint == "" {

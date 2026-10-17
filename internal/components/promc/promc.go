@@ -127,12 +127,12 @@ func (p *Prom) MetricsPath() string { return p.cfg.MetricsPath }
 // HealthPath 返回配置的健康检查路径（单端口挂载方对齐用）。
 func (p *Prom) HealthPath() string { return p.cfg.HealthPath }
 
-// Start 同步监听（端口占用等绑定错误在此暴露，fail-fast）后起服务
-// goroutine，立即返回。addr 为空时跳过监听（单端口形态：端点经
-// MetricsHandler / HealthHandler 挂在业务路由上，本组件无独立端口）。
 // Section 返回本组件的配置节名（统一节名获取接口，恒返回 SectionName）。
 func (p *Prom) Section() string { return SectionName }
 
+// Start 同步监听（端口占用等绑定错误在此暴露，fail-fast）后起服务
+// goroutine，立即返回。addr 为空时跳过监听（单端口形态：端点经
+// MetricsHandler / HealthHandler 挂在业务路由上，本组件无独立端口）。
 func (p *Prom) Start(ctx context.Context) error {
 	if p.cfg.Addr == "" {
 		slog.InfoContext(ctx, "promc_server_skipped",

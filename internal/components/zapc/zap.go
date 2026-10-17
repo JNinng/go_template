@@ -51,10 +51,10 @@ func New(cfg Config, opts ...Option) (*Log, error) {
 	return &Log{kit: kit}, nil
 }
 
-// Start 把当前实例安装为 zap 全局（zap.L / zap.S）。
 // Section 返回本组件的配置节名（统一节名获取接口，恒返回 SectionName）。
 func (z *Log) Section() string { return SectionName }
 
+// Start 把当前实例安装为 zap 全局（zap.L / zap.S）。
 func (z *Log) Start(ctx context.Context) error {
 	zap.ReplaceGlobals(z.kit.Current())
 	slog.InfoContext(ctx, "zapc_started")
